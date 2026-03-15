@@ -57,8 +57,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.3.3"
-<<<<<<< HEAD
-=======
   ffi:
     dependency: transitive
     description:
@@ -75,7 +73,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "7.0.1"
->>>>>>> afda20aca9df3659b37af0eaba2c41592ee0c8f0
   flutter:
     dependency: "direct main"
     description: flutter
@@ -94,14 +91,11 @@ packages:
     description: flutter
     source: sdk
     version: "0.0.0"
-<<<<<<< HEAD
-=======
   flutter_web_plugins:
     dependency: transitive
     description: flutter
     source: sdk
     version: "0.0.0"
->>>>>>> afda20aca9df3659b37af0eaba2c41592ee0c8f0
   leak_tracker:
     dependency: transitive
     description:
@@ -130,17 +124,10 @@ packages:
     dependency: transitive
     description:
       name: lints
-<<<<<<< HEAD
       sha256: "12f842a479589fea194fe5c5a3095abc7be0c1f2ddfa9a0e76aed1dbd26a87df"
       url: "https://pub.dev"
     source: hosted
     version: "6.1.0"
-=======
-      sha256: a5e2b223cb7c9c8efdc663ef484fdd95bb243bff242ef5b13e26883547fce9a0
-      url: "https://pub.dev"
-    source: hosted
-    version: "6.0.0"
->>>>>>> afda20aca9df3659b37af0eaba2c41592ee0c8f0
   matcher:
     dependency: transitive
     description:
@@ -173,8 +160,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.9.1"
-<<<<<<< HEAD
-=======
   path_provider_linux:
     dependency: transitive
     description:
@@ -271,7 +256,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.4.1"
->>>>>>> afda20aca9df3659b37af0eaba2c41592ee0c8f0
   sky_engine:
     dependency: transitive
     description: flutter
@@ -281,17 +265,10 @@ packages:
     dependency: transitive
     description:
       name: source_span
-<<<<<<< HEAD
       sha256: "56a02f1f4cd1a2d96303c0144c93bd6d909eea6bee6bf5a0e0b685edbd4c47ab"
       url: "https://pub.dev"
     source: hosted
     version: "1.10.2"
-=======
-      sha256: "254ee5351d6cb365c859e20ee823c3bb479bf4a293c22d17a9f1bf144ce86f7c"
-      url: "https://pub.dev"
-    source: hosted
-    version: "1.10.1"
->>>>>>> afda20aca9df3659b37af0eaba2c41592ee0c8f0
   stack_trace:
     dependency: transitive
     description:
@@ -348,11 +325,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "15.0.2"
-<<<<<<< HEAD
-sdks:
-  dart: ">=3.10.4 <4.0.0"
-  flutter: ">=3.18.0-18.0.pre.54"
-=======
   web:
     dependency: transitive
     description:
@@ -372,4 +344,3 @@ sdks:
 sdks:
   dart: ">=3.10.4 <4.0.0"
   flutter: ">=3.35.0"
->>>>>>> afda20aca9df3659b37af0eaba2c41592ee0c8f0
