@@ -6,7 +6,11 @@ plugins {
 }
 
 android {
+<<<<<<< HEAD
     namespace = "com.example.synapse"
+=======
+    namespace = "com.example.client"
+>>>>>>> afda20aca9df3659b37af0eaba2c41592ee0c8f0
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -21,7 +25,11 @@ android {
 
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
+<<<<<<< HEAD
         applicationId = "com.example.synapse"
+=======
+        applicationId = "com.example.client"
+>>>>>>> afda20aca9df3659b37af0eaba2c41592ee0c8f0
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion

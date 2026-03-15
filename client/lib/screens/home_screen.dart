@@ -34,20 +34,17 @@ class HomeScreen extends StatelessWidget {
                       ),
                     ],
                   ),
-                  MouseRegion(
-                    cursor: SystemMouseCursors.click,
-                    child: Container(
-                      width: 36,
-                      height: 36,
-                      decoration: BoxDecoration(
-                        color: colorScheme.surface,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Icon(
-                        Icons.bubble_chart,
-                        size: 20,
-                        color: colorScheme.primary,
-                      ),
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: colorScheme.surface,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(
+                      Icons.bubble_chart,
+                      size: 20,
+                      color: colorScheme.primary,
                     ),
                   ),
                 ],
@@ -57,33 +54,30 @@ class HomeScreen extends StatelessWidget {
             // Поиск
             Padding(
               padding: const EdgeInsets.all(20),
-              child: MouseRegion(
-                cursor: SystemMouseCursors.text,
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: colorScheme.surface,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: Colors.white.withOpacity(0.05),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: colorScheme.surface,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: Colors.white.withOpacity(0.05),
+                  ),
+                ),
+                child: TextField(
+                  decoration: InputDecoration(
+                    hintText: 'Поиск заметок...',
+                    hintStyle: theme.textTheme.bodyMedium,
+                    prefixIcon: Icon(
+                      Icons.search,
+                      size: 18,
+                      color: Colors.grey[600],
+                    ),
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
                     ),
                   ),
-                  child: TextField(
-                    decoration: InputDecoration(
-                      hintText: 'Поиск заметок...',
-                      hintStyle: theme.textTheme.bodyMedium,
-                      prefixIcon: Icon(
-                        Icons.search,
-                        size: 18,
-                        color: Colors.grey[600],
-                      ),
-                      border: InputBorder.none,
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 12,
-                      ),
-                    ),
-                    style: theme.textTheme.bodyLarge,
-                  ),
+                  style: theme.textTheme.bodyLarge,
                 ),
               ),
             ),
@@ -126,20 +120,17 @@ class HomeScreen extends StatelessWidget {
                     'Недавние',
                     style: theme.textTheme.titleLarge,
                   ),
-                  MouseRegion(
-                    cursor: SystemMouseCursors.click,
-                    child: TextButton(
-                      onPressed: () {},
-                      style: TextButton.styleFrom(
-                        minimumSize: Size.zero,
-                        padding: EdgeInsets.zero,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                      child: Text(
-                        'Все',
-                        style: theme.textTheme.labelLarge?.copyWith(
-                          color: colorScheme.primary,
-                        ),
+                  TextButton(
+                    onPressed: () {},
+                    style: TextButton.styleFrom(
+                      minimumSize: Size.zero,
+                      padding: EdgeInsets.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    child: Text(
+                      'Все',
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        color: colorScheme.primary,
                       ),
                     ),
                   ),
@@ -156,6 +147,7 @@ class HomeScreen extends StatelessWidget {
                 itemCount: 5,
                 separatorBuilder: (_, __) => const SizedBox(height: 8),
                 itemBuilder: (context, index) {
+                  // Исправлено: явно указываем тип Map<String, String>
                   final List<Map<String, dynamic>> notes = [
                     {
                       'title': 'Архитектура Synapse',
@@ -191,85 +183,79 @@ class HomeScreen extends StatelessWidget {
 
                   final note = notes[index];
                   
-                  return MouseRegion(
-                    cursor: SystemMouseCursors.click,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: colorScheme.surface,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: Colors.white.withOpacity(0.05),
-                        ),
+                  return Container(
+                    decoration: BoxDecoration(
+                      color: colorScheme.surface,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: Colors.white.withOpacity(0.05),
                       ),
-                      child: Material(
-                        color: Colors.transparent,
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(12),
-                          onTap: () {},
-                          hoverColor: colorScheme.primary.withOpacity(0.05),
-                          splashColor: Colors.transparent,
-                          highlightColor: Colors.transparent,
-                          child: Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        note['title'] as String,
-                                        style: theme.textTheme.titleLarge?.copyWith(
-                                          fontSize: 15,
-                                        ),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
+                    ),
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(12),
+                        onTap: () {},
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      note['title'] as String,  // Исправлено: as String
+                                      style: theme.textTheme.titleLarge?.copyWith(
+                                        fontSize: 15,
                                       ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
                                     ),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      note['date'] as String,
-                                      style: theme.textTheme.bodyMedium?.copyWith(
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  note['preview'] as String,
-                                  style: theme.textTheme.bodyLarge?.copyWith(
-                                    color: Colors.grey[400],
                                   ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    note['date'] as String,  // Исправлено: as String
+                                    style: theme.textTheme.bodyMedium?.copyWith(
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                note['preview'] as String,  // Исправлено: as String
+                                style: theme.textTheme.bodyLarge?.copyWith(
+                                  color: Colors.grey[400],
                                 ),
-                                const SizedBox(height: 12),
-                                Row(
-                                  children: (note['tags'] as List<String>).map((tag) {
-                                    return Container(
-                                      margin: const EdgeInsets.only(right: 6),
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                        vertical: 4,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              const SizedBox(height: 12),
+                              Row(
+                                children: (note['tags'] as List<String>).map((tag) {
+                                  return Container(
+                                    margin: const EdgeInsets.only(right: 6),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: colorScheme.primary.withOpacity(0.1),
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Text(
+                                      tag,
+                                      style: theme.textTheme.labelLarge?.copyWith(
+                                        fontSize: 11,
+                                        color: colorScheme.primary,
                                       ),
-                                      decoration: BoxDecoration(
-                                        color: colorScheme.primary.withOpacity(0.1),
-                                        borderRadius: BorderRadius.circular(6),
-                                      ),
-                                      child: Text(
-                                        tag,
-                                        style: theme.textTheme.labelLarge?.copyWith(
-                                          fontSize: 11,
-                                          color: colorScheme.primary,
-                                        ),
-                                      ),
-                                    );
-                                  }).toList(),
-                                ),
-                              ],
-                            ),
+                                    ),
+                                  );
+                                }).toList(),
+                              ),
+                            ],
                           ),
                         ),
                       ),
@@ -293,42 +279,36 @@ class HomeScreen extends StatelessWidget {
     final colorScheme = theme.colorScheme;
 
     return Expanded(
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        child: Container(
-          decoration: BoxDecoration(
-            color: colorScheme.surface,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: Colors.white.withOpacity(0.05),
-            ),
+      child: Container(
+        decoration: BoxDecoration(
+          color: colorScheme.surface,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: Colors.white.withOpacity(0.05),
           ),
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(10),
-              onTap: () {},
-              hoverColor: colorScheme.primary.withOpacity(0.1),
-              splashColor: Colors.transparent,
-              highlightColor: Colors.transparent,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                child: Column(
-                  children: [
-                    Icon(
-                      icon,
-                      size: 20,
-                      color: colorScheme.primary,
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(10),
+            onTap: () {},
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Column(
+                children: [
+                  Icon(
+                    icon,
+                    size: 20,
+                    color: colorScheme.primary,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    label,
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      fontSize: 11,
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      label,
-                      style: theme.textTheme.labelLarge?.copyWith(
-                        fontSize: 11,
-                      ),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
           ),
