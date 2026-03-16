@@ -25,8 +25,23 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   project.set_dart_entrypoint_arguments(std::move(command_line_arguments));
 
   FlutterWindow window(project);
-  Win32Window::Point origin(10, 10);
-  Win32Window::Size size(1280, 720);
+  
+  // ПОЛУЧАЕМ РАЗМЕРЫ ЭКРАНА
+  int screenWidth = GetSystemMetrics(SM_CXSCREEN);
+  int screenHeight = GetSystemMetrics(SM_CYSCREEN);
+  
+  // РАЗМЕР ОКНА (можешь изменить)
+  int windowWidth = 1280;
+  int windowHeight = 720;
+  
+  // ВЫЧИСЛЯЕМ ЦЕНТР
+  int xPos = (screenWidth - windowWidth) / 2;
+  int yPos = (screenHeight - windowHeight) / 2;
+  
+  // СОЗДАЁМ ОКНО ПО ЦЕНТРУ
+  Win32Window::Point origin(xPos, yPos);  // ← вместо (10, 10)
+  Win32Window::Size size(windowWidth, windowHeight);
+  
   if (!window.Create(L"synapse", origin, size)) {
     return EXIT_FAILURE;
   }

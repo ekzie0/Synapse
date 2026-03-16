@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
 import 'screens/home_screen.dart';
 
 void main() {
@@ -23,14 +24,25 @@ class SynapseApp extends StatelessWidget {
           background: const Color(0xFF121212),
         ),
         splashFactory: NoSplash.splashFactory,
-        highlightColor: Colors.transparent, 
+        highlightColor: Colors.transparent,
         scaffoldBackgroundColor: const Color(0xFF121212),
-        fontFamily: 'Segoe UI', // Для Windows
+        
+        //УМНОЕ СЕМЕЙСТВО ШРИФТОВ
+        fontFamily: 'SF Pro',
+        fontFamilyFallback: const [
+          'Segoe UI',      // для Windows
+          'Roboto',        // для Android
+          'Helvetica Neue', // запасной
+          'Arial',          // ещё запасной
+        ],
+        
+        //ТЕКСТОВЫЕ СТИЛИ
         textTheme: const TextTheme(
           headlineMedium: TextStyle(
             fontSize: 24,
-            fontWeight: FontWeight.w600,
+            fontWeight: FontWeight.bold,
             letterSpacing: -0.5,
+            color: Color.fromARGB(255, 255, 255, 255)
           ),
           titleLarge: TextStyle(
             fontSize: 18,
@@ -51,7 +63,30 @@ class SynapseApp extends StatelessWidget {
           ),
         ),
       ),
-      home: const HomeScreen(),
+      
+      //Для Cupertino виджетов используем отдельную тему
+      home: CupertinoTheme(  // ← оборачиваем home в CupertinoTheme
+        data: CupertinoThemeData(
+          brightness: Brightness.dark,
+          primaryColor: const Color(0xFF8B7EF6),
+          barBackgroundColor: const Color(0xFF1E1E1E),
+          scaffoldBackgroundColor: const Color(0xFF121212),
+          textTheme: CupertinoTextThemeData(
+            primaryColor: const Color(0xFF8B7EF6),
+            textStyle: const TextStyle(
+              fontFamily: 'SF Pro',
+              fontFamilyFallback: [
+                'Segoe UI',
+                'Roboto',
+                'Helvetica Neue',
+                'Arial',
+              ],
+              color: Colors.white,
+            ),
+          ),
+        ),
+        child: const HomeScreen(),
+      ),
     );
   }
 }

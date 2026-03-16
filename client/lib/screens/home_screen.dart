@@ -1,4 +1,7 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:synapse/screens/notes_screen.dart';
+import 'package:synapse/widgets/hover_text_button.dart';  // ← добавил импорт
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -26,11 +29,6 @@ class HomeScreen extends StatelessWidget {
                       Text(
                         'Synapse',
                         style: theme.textTheme.headlineMedium,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'твоя сеть знаний',
-                        style: theme.textTheme.bodyMedium,
                       ),
                     ],
                   ),
@@ -62,22 +60,28 @@ class HomeScreen extends StatelessWidget {
                     color: Colors.white.withOpacity(0.05),
                   ),
                 ),
-                child: TextField(
-                  decoration: InputDecoration(
-                    hintText: 'Поиск заметок...',
-                    hintStyle: theme.textTheme.bodyMedium,
-                    prefixIcon: Icon(
+                child: CupertinoTextField(
+                  placeholder: 'Поиск заметок...',
+                  placeholderStyle: theme.textTheme.bodyLarge?.copyWith(
+                    fontFamily: '.SF Pro Display',  // iOS шрифт
+                    color: const Color.fromARGB(255, 206, 206, 206),
+                  ),
+                  style: theme.textTheme.bodyLarge?.copyWith(
+                    fontFamily: '.SF Pro Display',  // iOS шрифт
+                  ),
+                  prefix: Padding(  // ← вместо prefixIcon используем prefix
+                    padding: const EdgeInsets.only(left: 16, right: 8),
+                    child: Icon(
                       Icons.search,
                       size: 18,
                       color: Colors.grey[600],
                     ),
-                    border: InputBorder.none,
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 12,
-                    ),
                   ),
-                  style: theme.textTheme.bodyLarge,
+                  decoration: null,  // убираем стандартную декорацию
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
                 ),
               ),
             ),
@@ -120,19 +124,16 @@ class HomeScreen extends StatelessWidget {
                     'Недавние',
                     style: theme.textTheme.titleLarge,
                   ),
-                  TextButton(
-                    onPressed: () {},
-                    style: TextButton.styleFrom(
-                      minimumSize: Size.zero,
-                      padding: EdgeInsets.zero,
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    ),
-                    child: Text(
-                      'Все',
-                      style: theme.textTheme.labelLarge?.copyWith(
-                        color: colorScheme.primary,
-                      ),
-                    ),
+                  
+                  HoverTextButton(
+                    text: 'Все',
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        CupertinoPageRoute(builder: (context) => const NotesScreen()),
+                      );
+                    },
+                    color: colorScheme.primary,
                   ),
                 ],
               ),
@@ -147,7 +148,6 @@ class HomeScreen extends StatelessWidget {
                 itemCount: 5,
                 separatorBuilder: (_, __) => const SizedBox(height: 8),
                 itemBuilder: (context, index) {
-                  // Исправлено: явно указываем тип Map<String, String>
                   final List<Map<String, dynamic>> notes = [
                     {
                       'title': 'Архитектура Synapse',
@@ -206,7 +206,7 @@ class HomeScreen extends StatelessWidget {
                                 children: [
                                   Expanded(
                                     child: Text(
-                                      note['title'] as String,  // Исправлено: as String
+                                      note['title'] as String,
                                       style: theme.textTheme.titleLarge?.copyWith(
                                         fontSize: 15,
                                       ),
@@ -216,7 +216,7 @@ class HomeScreen extends StatelessWidget {
                                   ),
                                   const SizedBox(width: 8),
                                   Text(
-                                    note['date'] as String,  // Исправлено: as String
+                                    note['date'] as String,
                                     style: theme.textTheme.bodyMedium?.copyWith(
                                       fontSize: 12,
                                     ),
@@ -225,7 +225,7 @@ class HomeScreen extends StatelessWidget {
                               ),
                               const SizedBox(height: 8),
                               Text(
-                                note['preview'] as String,  // Исправлено: as String
+                                note['preview'] as String,
                                 style: theme.textTheme.bodyLarge?.copyWith(
                                   color: Colors.grey[400],
                                 ),
@@ -291,7 +291,20 @@ class HomeScreen extends StatelessWidget {
           color: Colors.transparent,
           child: InkWell(
             borderRadius: BorderRadius.circular(10),
-            onTap: () {},
+            onTap: () {
+              if (label == 'Все заметки') {
+                Navigator.push(
+                  context,
+                  CupertinoPageRoute(builder: (context) => const NotesScreen()),
+                );
+              } else if (label == 'Новая заметка') {
+                print('Новая заметка');
+                // TODO: потом сделаем
+              } else if (label == 'Граф') {
+                print('Граф');
+                // TODO: потом сделаем
+              }
+            },
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 12),
               child: Column(
