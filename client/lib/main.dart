@@ -27,16 +27,14 @@ class SynapseApp extends StatelessWidget {
         highlightColor: Colors.transparent,
         scaffoldBackgroundColor: const Color(0xFF121212),
         
-        //УМНОЕ СЕМЕЙСТВО ШРИФТОВ
         fontFamily: 'SF Pro',
         fontFamilyFallback: const [
-          'Segoe UI',      // для Windows
-          'Roboto',        // для Android
-          'Helvetica Neue', // запасной
-          'Arial',          // ещё запасной
+          'Segoe UI',
+          'Roboto',
+          'Helvetica Neue',
+          'Arial',
         ],
         
-        //ТЕКСТОВЫЕ СТИЛИ
         textTheme: const TextTheme(
           headlineMedium: TextStyle(
             fontSize: 24,
@@ -64,8 +62,7 @@ class SynapseApp extends StatelessWidget {
         ),
       ),
       
-      //Для Cupertino виджетов используем отдельную тему
-      home: CupertinoTheme(  // ← оборачиваем home в CupertinoTheme
+      home: CupertinoTheme(
         data: CupertinoThemeData(
           brightness: Brightness.dark,
           primaryColor: const Color(0xFF8B7EF6),

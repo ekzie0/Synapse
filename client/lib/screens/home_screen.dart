@@ -1,7 +1,8 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:synapse/screens/notes_screen.dart';
-import 'package:synapse/widgets/hover_text_button.dart';  // ← добавил импорт
+import 'package:synapse/widgets/hover_text_button.dart';
+import 'package:synapse/widgets/app_logo.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -10,28 +11,25 @@ class HomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
 
-    return Scaffold(
+      return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       body: SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Верхняя панель
+            // Верхняя панель с логотипом
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+              padding: const EdgeInsets.fromLTRB(20, 6, 20, 2),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Synapse',
-                        style: theme.textTheme.headlineMedium,
-                      ),
-                    ],
+                  AppLogo(
+                    size: 40,
+                    color: isDark ? Colors.white : Colors.black,
                   ),
+                  
                   Container(
                     width: 36,
                     height: 36,
@@ -63,13 +61,13 @@ class HomeScreen extends StatelessWidget {
                 child: CupertinoTextField(
                   placeholder: 'Поиск заметок...',
                   placeholderStyle: theme.textTheme.bodyLarge?.copyWith(
-                    fontFamily: '.SF Pro Display',  // iOS шрифт
+                    fontFamily: '.SF Pro Display',
                     color: const Color.fromARGB(255, 206, 206, 206),
                   ),
                   style: theme.textTheme.bodyLarge?.copyWith(
-                    fontFamily: '.SF Pro Display',  // iOS шрифт
+                    fontFamily: '.SF Pro Display',
                   ),
-                  prefix: Padding(  // ← вместо prefixIcon используем prefix
+                  prefix: Padding(
                     padding: const EdgeInsets.only(left: 16, right: 8),
                     child: Icon(
                       Icons.search,
@@ -77,7 +75,7 @@ class HomeScreen extends StatelessWidget {
                       color: Colors.grey[600],
                     ),
                   ),
-                  decoration: null,  // убираем стандартную декорацию
+                  decoration: null,
                   padding: const EdgeInsets.symmetric(
                     horizontal: 16,
                     vertical: 12,

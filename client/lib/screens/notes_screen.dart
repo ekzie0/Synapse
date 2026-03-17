@@ -15,26 +15,28 @@ class NotesScreen extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
-              child:Row(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 2),
+              child: Row(
                 children: [
                   IconButton(
                     onPressed: () {
                       Navigator.pop(context);
                     },
-                    icon: Icon(Icons.arrow_back),
+                    icon: const Icon(Icons.arrow_back),
                     color: colorScheme.primary,
-                    splashRadius: 20,
+                    splashRadius: 15,
                     highlightColor: colorScheme.primary.withValues(alpha: 0.1),
                     splashColor: Colors.transparent,
                     padding: EdgeInsets.zero,
-                    constraints: BoxConstraints(),
+                    constraints: const BoxConstraints(),
                   ),
                   Expanded(
                     child: Text(
                       'Заметки',
                       textAlign: TextAlign.center,
-                      style: theme.textTheme.headlineMedium,
+                      style: theme.textTheme.headlineMedium?.copyWith(
+                        color: const Color.fromARGB(255, 70, 70, 70),
+                      ),
                     ),
                   ),
                   Container(
@@ -51,6 +53,38 @@ class NotesScreen extends StatelessWidget {
                     ),
                   ),
                 ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 6, 20, 2),
+              child: Container(
+                height: 32,
+                decoration: BoxDecoration(
+                  color: colorScheme.surface,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: Colors.white.withOpacity(0.05),
+                  ),
+                ),
+                child: TextField(
+                  decoration: InputDecoration(
+                    hintText: 'Поиск...',
+                    hintStyle: theme.textTheme.bodyLarge?.copyWith(
+                      color: const Color.fromARGB(255, 206, 206, 206),
+                    ),
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    prefixIcon: Padding(
+                      padding: const EdgeInsets.only(left: 16, right: 8),
+                      child: Icon(
+                        Icons.search,
+                        size: 16,
+                        color: Colors.grey[600],
+                      ),
+                    ),
+                  ),
+                  style: theme.textTheme.bodyLarge,
+                ),
               ),
             ),
           ],
