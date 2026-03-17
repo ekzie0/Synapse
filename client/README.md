@@ -3,7 +3,7 @@
 
 # SYNAPSE
 
-  <<img src="https://raw.githubusercontent.com/ekzie0/Synapse/main/docs/synapse_logo_without_text_white.png" width="300" alt="synapse_logo_without_text_white" width="300">
+  <img src="https://raw.githubusercontent.com/ekzie0/Synapse/main/docs/synapse_logo_without_text_white.png">
 
   ### Ваш персональный Obsidian в кармане
 
