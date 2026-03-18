@@ -26,7 +26,7 @@ class HomeScreen extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   AppLogo(
-                    size: 40,
+                    size: 34,
                     color: isDark ? Colors.white : Colors.black,
                   ),
                   
@@ -38,8 +38,8 @@ class HomeScreen extends StatelessWidget {
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Icon(
-                      Icons.bubble_chart,
-                      size: 20,
+                      Icons.account_circle_outlined,
+                      size: 28,
                       color: colorScheme.primary,
                     ),
                   ),
@@ -49,8 +49,9 @@ class HomeScreen extends StatelessWidget {
 
             // Поиск
             Padding(
-              padding: const EdgeInsets.all(20),
+              padding: const EdgeInsets.fromLTRB(20, 6, 20, 4),
               child: Container(
+                height: 32,
                 decoration: BoxDecoration(
                   color: colorScheme.surface,
                   borderRadius: BorderRadius.circular(12),
@@ -58,35 +59,31 @@ class HomeScreen extends StatelessWidget {
                     color: Colors.white.withOpacity(0.05),
                   ),
                 ),
-                child: CupertinoTextField(
-                  placeholder: 'Поиск заметок...',
-                  placeholderStyle: theme.textTheme.bodyLarge?.copyWith(
-                    fontFamily: '.SF Pro Display',
-                    color: const Color.fromARGB(255, 206, 206, 206),
-                  ),
-                  style: theme.textTheme.bodyLarge?.copyWith(
-                    fontFamily: '.SF Pro Display',
-                  ),
-                  prefix: Padding(
-                    padding: const EdgeInsets.only(left: 16, right: 8),
-                    child: Icon(
-                      Icons.search,
-                      size: 18,
-                      color: Colors.grey[600],
+                child: TextField(
+                  decoration: InputDecoration(
+                    hintText: 'Поиск...',
+                    hintStyle: theme.textTheme.bodyLarge?.copyWith(
+                      color: const Color.fromARGB(255, 206, 206, 206),
+                    ),
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    prefixIcon: Padding(
+                      padding: const EdgeInsets.only(left: 16, right: 8),
+                      child: Icon(
+                        Icons.search,
+                        size: 16,
+                        color: Colors.grey[600],
+                      ),
                     ),
                   ),
-                  decoration: null,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 12,
-                  ),
+                  style: theme.textTheme.bodyLarge,
                 ),
               ),
             ),
 
             // Быстрые действия
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
+              padding: const EdgeInsets.fromLTRB(20, 6, 20, 4),
               child: Row(
                 children: [
                   _buildQuickAction(
@@ -109,12 +106,12 @@ class HomeScreen extends StatelessWidget {
                 ],
               ),
             ),
-
-            const SizedBox(height: 24),
+            
+            const SizedBox(height: 6),
 
             // Заголовок раздела
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
+              padding: const EdgeInsets.fromLTRB(20, 2, 20, 2),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -195,7 +192,7 @@ class HomeScreen extends StatelessWidget {
                         borderRadius: BorderRadius.circular(12),
                         onTap: () {},
                         child: Padding(
-                          padding: const EdgeInsets.all(16),
+                          padding: const EdgeInsets.all(12),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
