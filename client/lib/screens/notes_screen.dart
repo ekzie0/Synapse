@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:synapse/widgets/avatar_popup_menu.dart'; // 👈 импортируем
 
 class NotesScreen extends StatelessWidget {
   const NotesScreen({super.key});
@@ -73,19 +74,8 @@ class NotesScreen extends StatelessWidget {
                       ),
                     ),
                   ),
-                  Container(
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(
-                      color: colorScheme.surface,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Icon(
-                      Icons.account_circle_outlined,
-                      size: 28,
-                      color: colorScheme.primary,
-                    ),
-                  ),
+                  // 👇 Меняем Container на AvatarPopupMenu
+                  const AvatarPopupMenu(),
                 ],
               ),
             ),
@@ -94,7 +84,7 @@ class NotesScreen extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 6, 20, 2),
               child: Container(
-                height: 32,
+                height: 42, // 👈 увеличил высоту для удобства
                 decoration: BoxDecoration(
                   color: colorScheme.surface,
                   borderRadius: BorderRadius.circular(12),
@@ -109,12 +99,12 @@ class NotesScreen extends StatelessWidget {
                       color: const Color.fromARGB(255, 206, 206, 206),
                     ),
                     border: InputBorder.none,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                     prefixIcon: Padding(
                       padding: const EdgeInsets.only(left: 16, right: 14),
                       child: Icon(
                         Icons.search,
-                        size: 16,
+                        size: 18,
                         color: Colors.grey[600],
                       ),
                     ),
@@ -134,102 +124,108 @@ class NotesScreen extends StatelessWidget {
                 separatorBuilder: (_, __) => const SizedBox(height: 8),
                 itemBuilder: (context, index) {
                   final note = notes[index];
-                  
-                  return Container(
-                    decoration: BoxDecoration(
-                      color: colorScheme.surface,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: Colors.white.withOpacity(0.05),
-                      ),
-                    ),
-                    child: Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(12),
-                        onTap: () {
-                          print('Открыть: ${note['title']}');
-                        },
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              // Заголовок и дата
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      note['title'] as String,
-                                      style: theme.textTheme.titleLarge?.copyWith(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    note['date'] as String,
-                                    style: theme.textTheme.bodyMedium?.copyWith(
-                                      fontSize: 12,
-                                      color: Colors.grey[500],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              
-                              const SizedBox(height: 8),
-                              
-                              // Превью
-                              Text(
-                                note['preview'] as String,
-                                style: theme.textTheme.bodyLarge?.copyWith(
-                                  color: Colors.grey[400],
-                                  fontSize: 13,
-                                ),
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              
-                              const SizedBox(height: 12),
-                              
-                              // Теги
-                              Wrap(
-                                spacing: 6,
-                                runSpacing: 6,
-                                children: (note['tags'] as List<String>).map((tag) {
-                                  return Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 4,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: colorScheme.primary.withOpacity(0.1),
-                                      borderRadius: BorderRadius.circular(6),
-                                    ),
-                                    child: Text(
-                                      tag,
-                                      style: theme.textTheme.labelLarge?.copyWith(
-                                        fontSize: 11,
-                                        color: colorScheme.primary,
-                                      ),
-                                    ),
-                                  );
-                                }).toList(),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  );
+                  return _buildNoteCard(context, note);
                 },
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNoteCard(BuildContext context, Map<String, dynamic> note) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: Colors.white.withOpacity(0.05),
+        ),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () {
+            print('Открыть: ${note['title']}');
+          },
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Заголовок и дата
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        note['title'] as String,
+                        style: theme.textTheme.titleLarge?.copyWith(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      note['date'] as String,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontSize: 12,
+                        color: Colors.grey[500],
+                      ),
+                    ),
+                  ],
+                ),
+                
+                const SizedBox(height: 8),
+                
+                // Превью
+                Text(
+                  note['preview'] as String,
+                  style: theme.textTheme.bodyLarge?.copyWith(
+                    color: Colors.grey[400],
+                    fontSize: 13,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                
+                const SizedBox(height: 12),
+                
+                // Теги
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: (note['tags'] as List<String>).map((tag) {
+                    return Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: colorScheme.primary.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        tag,
+                        style: theme.textTheme.labelLarge?.copyWith(
+                          fontSize: 11,
+                          color: colorScheme.primary,
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );

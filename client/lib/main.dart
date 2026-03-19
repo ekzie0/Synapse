@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:provider/provider.dart';
 import 'screens/home_screen.dart';
+import 'providers/theme_provider.dart';
 
 void main() {
   runApp(const SynapseApp());
@@ -11,78 +13,44 @@ class SynapseApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Synapse',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: false,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF8B7EF6),
-          brightness: Brightness.dark,
-        ).copyWith(
-          surface: const Color(0xFF1E1E1E),
-          background: const Color(0xFF121212),
-        ),
-        splashFactory: NoSplash.splashFactory,
-        highlightColor: Colors.transparent,
-        scaffoldBackgroundColor: const Color(0xFF121212),
-        
-        fontFamily: 'SF Pro',
-        fontFamilyFallback: const [
-          'Segoe UI',
-          'Roboto',
-          'Helvetica Neue',
-          'Arial',
-        ],
-        
-        textTheme: const TextTheme(
-          headlineMedium: TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.bold,
-            letterSpacing: -0.5,
-            color: Color.fromARGB(255, 255, 255, 255)
-          ),
-          titleLarge: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w500,
-          ),
-          bodyLarge: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.normal,
-          ),
-          bodyMedium: TextStyle(
-            fontSize: 13,
-            color: Color(0xFF9E9E9E),
-          ),
-          labelLarge: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w500,
-            letterSpacing: 0.5,
-          ),
-        ),
-      ),
-      
-      home: CupertinoTheme(
-        data: CupertinoThemeData(
-          brightness: Brightness.dark,
-          primaryColor: const Color(0xFF8B7EF6),
-          barBackgroundColor: const Color(0xFF1E1E1E),
-          scaffoldBackgroundColor: const Color(0xFF121212),
-          textTheme: CupertinoTextThemeData(
-            primaryColor: const Color(0xFF8B7EF6),
-            textStyle: const TextStyle(
-              fontFamily: 'SF Pro',
-              fontFamilyFallback: [
-                'Segoe UI',
-                'Roboto',
-                'Helvetica Neue',
-                'Arial',
-              ],
-              color: Colors.white,
+    return ChangeNotifierProvider(
+      create: (_) => ThemeProvider(),
+      child: Consumer<ThemeProvider>(
+        builder: (context, themeProvider, child) {
+          final theme = themeProvider.currentTheme;
+          
+          return MaterialApp(
+            title: 'Synapse',
+            debugShowCheckedModeBanner: false,
+            theme: theme.toThemeData(),
+            home: CupertinoTheme(
+              data: CupertinoThemeData(
+                brightness: theme.brightness,
+                primaryColor: theme.primaryColor,
+                barBackgroundColor: theme.brightness == Brightness.dark
+                    ? const Color(0xFF1E1E1E)
+                    : Colors.white,
+                scaffoldBackgroundColor: Colors.transparent,
+                textTheme: CupertinoTextThemeData(
+                  primaryColor: theme.primaryColor,
+                  textStyle: TextStyle(
+                    fontFamily: 'SF Pro',
+                    fontFamilyFallback: const [
+                      'Segoe UI',
+                      'Roboto',
+                      'Helvetica Neue',
+                      'Arial',
+                    ],
+                    color: theme.brightness == Brightness.dark 
+                        ? Colors.white 
+                        : Colors.black,
+                  ),
+                ),
+              ),
+              child: const HomeScreen(),
             ),
-          ),
-        ),
-        child: const HomeScreen(),
+          );
+        },
       ),
     );
   }
