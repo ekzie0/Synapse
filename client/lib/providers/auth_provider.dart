@@ -7,10 +7,12 @@ import 'package:synapse/database/repositories/user_repository.dart';
 class AuthProvider extends ChangeNotifier {
   final UserRepository _userRepo = UserRepository();
   User? _currentUser;
-  bool _isLoading = false;
+  bool _isLoading = true;
+  bool _isLoggingIn = false;
 
   User? get currentUser => _currentUser;
   bool get isLoading => _isLoading;
+  bool get isLoggingIn => _isLoggingIn;
   bool get isAuthenticated => _currentUser != null;
 
   AuthProvider() {
@@ -18,60 +20,62 @@ class AuthProvider extends ChangeNotifier {
   }
 
   Future<void> _loadUser() async {
-    final prefs = await SharedPreferences.getInstance();
-    final userData = prefs.getString('user_data');
-    
-    if (userData != null) {
-      final Map<String, dynamic> map = jsonDecode(userData);
-      _currentUser = User.fromMap(map);
+    try {
+      _isLoading = true;
+      notifyListeners();
+      
+      final prefs = await SharedPreferences.getInstance();
+      final userData = prefs.getString('user_data');
+      
+      if (userData != null) {
+        final Map<String, dynamic> map = jsonDecode(userData);
+        _currentUser = User.fromMap(map);
+        print('👤 Загружен пользователь: ${_currentUser?.username}');
+      }
+    } catch (e) {
+      print('❌ Ошибка: $e');
+    } finally {
+      _isLoading = false;
       notifyListeners();
     }
   }
 
   Future<bool> login(String username, String password) async {
-    _isLoading = true;
+    _isLoggingIn = true;
     notifyListeners();
     
-    final user = await _userRepo.login(username, password);
-    
-    _isLoading = false;
-    
-    if (user != null) {
-      _currentUser = user;
-      await _saveUser(user);
+    try {
+      final user = await _userRepo.login(username, password);
+      
+      if (user != null) {
+        _currentUser = user;
+        await _saveUser(user);
+        notifyListeners();
+        return true;
+      }
+      return false;
+    } finally {
+      _isLoggingIn = false;
       notifyListeners();
-      return true;
     }
-    
-    notifyListeners();
-    return false;
   }
 
   Future<bool> register(String username, String email, String password) async {
-    _isLoading = true;
+    _isLoggingIn = true;
     notifyListeners();
     
-    final user = await _userRepo.register(username, email, password);
-    
-    _isLoading = false;
-    
-    if (user != null) {
-      _currentUser = user;
-      await _saveUser(user);
-      notifyListeners();
-      return true;
-    }
-    
-    notifyListeners();
-    return false;
-  }
-
-  Future<void> updateAvatar(String? avatarPath) async {
-    if (_currentUser != null) {
-      await _userRepo.updateAvatar(_currentUser!.id!, avatarPath);
+    try {
+      final user = await _userRepo.register(username, email, password);
       
-      _currentUser = _currentUser!.copyWith(avatarPath: avatarPath);
-      await _saveUser(_currentUser!);
+      if (user != null) {
+        _currentUser = user;
+        await _saveUser(user);
+        notifyListeners();
+        return true;
+      }
+      return false;
+    } finally {
+      _isLoggingIn = false;
       notifyListeners();
     }
   }

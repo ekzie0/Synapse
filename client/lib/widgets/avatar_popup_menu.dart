@@ -60,8 +60,14 @@ class AvatarPopupMenu extends StatelessWidget {
       offset: const Offset(0, 40),
       color: colorScheme.surface,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      splashRadius: 1,
-      child: _buildAvatar(context, user),
+      splashRadius: 0.1,
+      icon: null,
+      child: Container(
+        decoration: const BoxDecoration(
+          shape: BoxShape.circle,
+        ),
+        child: _buildAvatar(context, user),
+      ),
       itemBuilder: (context) => [
         PopupMenuItem(
           value: 'profile',
@@ -128,7 +134,6 @@ class AvatarPopupMenu extends StatelessWidget {
   Widget _buildAvatar(BuildContext context, User? user) {
     final colorScheme = Theme.of(context).colorScheme;
     
-    // Если есть аватарка и путь не пустой
     if (user?.avatarPath != null && user!.avatarPath!.isNotEmpty) {
       final file = File(user.avatarPath!);
       if (file.existsSync()) {
@@ -139,7 +144,6 @@ class AvatarPopupMenu extends StatelessWidget {
       }
     }
     
-    // Если есть цвет аватарки
     if (user?.avatarColor != null && user!.avatarColor!.isNotEmpty) {
       return CircleAvatar(
         radius: 18,
@@ -151,11 +155,14 @@ class AvatarPopupMenu extends StatelessWidget {
       );
     }
     
-    // По умолчанию - иконка
-    return Icon(
-      Icons.account_circle_outlined,
-      size: 36,
-      color: colorScheme.primary,
+    return CircleAvatar(
+      radius: 18,
+      backgroundColor: colorScheme.primary.withOpacity(0.1),
+      child: Icon(
+        Icons.account_circle_outlined,
+        size: 28,
+        color: colorScheme.primary,
+      ),
     );
   }
 }

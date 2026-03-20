@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:sqflite/sqflite.dart';
 import 'package:synapse/database/database_helper.dart';
 import 'package:synapse/database/models/note_model.dart';
@@ -25,8 +26,53 @@ class NoteRepository {
         INNER JOIN note_tags nt ON t.id = nt.tag_id
         WHERE nt.note_id = ? AND t.user_id = ?
       ''', [note.id, userId]);
-      
       note.tags = tagMaps.map((tag) => tag['name'] as String).toList();
+      
+      final List<Map<String, dynamic>> imageMaps = await db.query(
+        'note_images',
+        where: 'note_id = ?',
+        whereArgs: [note.id],
+        orderBy: 'created_at ASC',
+      );
+      note.images = imageMaps.map((img) => img['image_path'] as String).toList();
+      
+      notes.add(note);
+    }
+    
+    return notes;
+  }
+
+  // Новый метод для заметок без папки
+  Future<List<Note>> getNotesWithoutFolder(int userId) async {
+    final db = await _dbHelper.database;
+    
+    final List<Map<String, dynamic>> notesMaps = await db.query(
+      'notes',
+      where: 'user_id = ? AND folder_id IS NULL',
+      whereArgs: [userId],
+      orderBy: 'updated_at DESC',
+    );
+    
+    List<Note> notes = [];
+    
+    for (var noteMap in notesMaps) {
+      final note = Note.fromMap(noteMap);
+      
+      final List<Map<String, dynamic>> tagMaps = await db.rawQuery('''
+        SELECT t.name FROM tags t
+        INNER JOIN note_tags nt ON t.id = nt.tag_id
+        WHERE nt.note_id = ? AND t.user_id = ?
+      ''', [note.id, userId]);
+      note.tags = tagMaps.map((tag) => tag['name'] as String).toList();
+      
+      final List<Map<String, dynamic>> imageMaps = await db.query(
+        'note_images',
+        where: 'note_id = ?',
+        whereArgs: [note.id],
+        orderBy: 'created_at ASC',
+      );
+      note.images = imageMaps.map((img) => img['image_path'] as String).toList();
+      
       notes.add(note);
     }
     
@@ -51,8 +97,15 @@ class NoteRepository {
       INNER JOIN note_tags nt ON t.id = nt.tag_id
       WHERE nt.note_id = ? AND t.user_id = ?
     ''', [id, userId]);
-    
     note.tags = tagMaps.map((tag) => tag['name'] as String).toList();
+    
+    final List<Map<String, dynamic>> imageMaps = await db.query(
+      'note_images',
+      where: 'note_id = ?',
+      whereArgs: [id],
+      orderBy: 'created_at ASC',
+    );
+    note.images = imageMaps.map((img) => img['image_path'] as String).toList();
     
     return note;
   }
@@ -70,6 +123,10 @@ class NoteRepository {
     
     if (note.tags != null && note.tags!.isNotEmpty) {
       await _addTagsToNote(db, id, note.userId, note.tags!);
+    }
+    
+    if (note.images != null && note.images!.isNotEmpty) {
+      await _addImagesToNote(db, id, note.images!);
     }
     
     return id;
@@ -100,14 +157,50 @@ class NoteRepository {
       }
     }
     
+    if (note.images != null) {
+      await db.delete(
+        'note_images',
+        where: 'note_id = ?',
+        whereArgs: [note.id],
+      );
+      
+      if (note.images!.isNotEmpty) {
+        await _addImagesToNote(db, note.id!, note.images!);
+      }
+    }
+    
     return result;
   }
 
   Future<int> deleteNote(int id, int userId) async {
     final db = await _dbHelper.database;
     
+    final List<Map<String, dynamic>> imageMaps = await db.query(
+      'note_images',
+      where: 'note_id = ?',
+      whereArgs: [id],
+    );
+    
+    for (var img in imageMaps) {
+      final path = img['image_path'] as String;
+      try {
+        final file = File(path);
+        if (await file.exists()) {
+          await file.delete();
+        }
+      } catch (e) {
+        print('Ошибка удаления файла: $e');
+      }
+    }
+    
     await db.delete(
       'note_tags',
+      where: 'note_id = ?',
+      whereArgs: [id],
+    );
+    
+    await db.delete(
+      'note_images',
       where: 'note_id = ?',
       whereArgs: [id],
     );
@@ -141,6 +234,17 @@ class NoteRepository {
       await db.insert('note_tags', {
         'note_id': noteId,
         'tag_id': tagId,
+      });
+    }
+  }
+
+  Future<void> _addImagesToNote(Database db, int noteId, List<String> imagePaths) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    for (String imagePath in imagePaths) {
+      await db.insert('note_images', {
+        'note_id': noteId,
+        'image_path': imagePath,
+        'created_at': now,
       });
     }
   }
