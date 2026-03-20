@@ -13,24 +13,43 @@ class FolderProvider extends ChangeNotifier {
   List<Folder> _currentSubfolders = [];
   List<Note> _currentNotes = [];
   List<Note> _rootNotes = [];
+  
+  // Плоский список ВСЕХ заметок для мгновенного поиска по всему приложению
+  List<Note> _allNotes = []; 
+  
   bool _isLoading = false;
 
+  // Геттеры
   List<Folder> get rootFolders => _rootFolders;
   Folder? get currentFolder => _currentFolder;
   List<Folder> get currentSubfolders => _currentSubfolders;
   List<Note> get currentNotes => _currentNotes;
   List<Note> get rootNotes => _rootNotes;
+  List<Note> get allNotes => _allNotes; // Для внешнего доступа
   bool get isLoading => _isLoading;
   bool get isInRoot => _currentFolder == null;
 
+  // --- ПОИСК ---
+  List<Note> searchAllNotes(String query) {
+    if (query.isEmpty) return [];
+    // Используем метод matchesQuery из модели Note
+    return _allNotes.where((note) => note.matchesQuery(query)).toList();
+  }
+
+  // --- ЗАГРУЗКА ДАННЫХ ---
   Future<void> loadRootFolders(int userId) async {
     _isLoading = true;
     notifyListeners();
     
+    // Загружаем структуру для дерева
     _rootFolders = await _folderRepo.getRootFolders(userId);
     _rootNotes = await _noteRepo.getNotesWithoutFolder(userId);
     
-    // Загружаем подпапки для каждого корневого элемента
+    // ЗАГРУЖАЕМ ВСЕ ЗАМЕТКИ ДЛЯ ПОИСКА (Критически важно!)
+    _allNotes = await _noteRepo.getAllNotes(userId); 
+  print("Загружено заметок для поиска: ${_allNotes.length}"); // Добавь этот принт для отладки
+  notifyListeners();
+    
     for (var i = 0; i < _rootFolders.length; i++) {
       final subfolders = await _folderRepo.getSubfolders(userId, _rootFolders[i].id!);
       _rootFolders[i] = _rootFolders[i].copyWith(subfolders: subfolders);
@@ -39,7 +58,9 @@ class FolderProvider extends ChangeNotifier {
     _isLoading = false;
     notifyListeners();
   }
-
+Future<List<Folder>> getSubfolders(int userId, int folderId) async {
+    return await _folderRepo.getSubfolders(userId, folderId);
+  }
   Future<void> openFolder(Folder folder, int userId) async {
     _isLoading = true;
     notifyListeners();
@@ -59,48 +80,34 @@ class FolderProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  // --- СОЗДАНИЕ ---
   Future<bool> createFolder(String name, int userId, {int? parentFolderId}) async {
-    _isLoading = true;
-    notifyListeners();
-    
     final now = DateTime.now().millisecondsSinceEpoch;
     final folder = Folder(
       userId: userId,
-      parentId: parentFolderId ?? _currentFolder?.id,
+      parentId: parentFolderId,
       name: name,
       createdAt: now,
       updatedAt: now,
     );
     
     final id = await _folderRepo.createFolder(folder);
-    
     if (id > 0) {
       if (parentFolderId != null) {
-        // Если создаем в конкретной папке, обновляем её подпапки
         await _refreshFolderContent(parentFolderId, userId);
-      } else if (_currentFolder == null) {
-        await loadRootFolders(userId);
       } else {
-        _currentSubfolders = await _folderRepo.getSubfolders(userId, _currentFolder!.id!);
+        await loadRootFolders(userId);
       }
-      _isLoading = false;
-      notifyListeners();
       return true;
     }
-    
-    _isLoading = false;
-    notifyListeners();
     return false;
   }
 
   Future<bool> createNote(String title, int userId, {int? folderId}) async {
-    _isLoading = true;
-    notifyListeners();
-    
     final now = DateTime.now().millisecondsSinceEpoch;
     final note = Note(
       userId: userId,
-      folderId: folderId ?? _currentFolder?.id,
+      folderId: folderId,
       title: title,
       content: '',
       createdAt: now,
@@ -108,98 +115,86 @@ class FolderProvider extends ChangeNotifier {
     );
     
     final id = await _noteRepo.createNote(note);
-    
     if (id > 0) {
+      // Добавляем в общий список для поиска без перезагрузки всей БД
+      final createdNote = note.copyWith(id: id);
+      _allNotes.add(createdNote);
+
       if (folderId != null) {
-        // Если создаем в конкретной папке, обновляем её заметки
-        await _refreshFolderContent(folderId, userId);
-      } else if (_currentFolder != null) {
-        _currentNotes = await _folderRepo.getNotesInFolder(userId, _currentFolder!.id!);
+        _currentNotes = await _folderRepo.getNotesInFolder(userId, folderId);
       } else {
         _rootNotes = await _noteRepo.getNotesWithoutFolder(userId);
       }
-      _isLoading = false;
       notifyListeners();
       return true;
     }
-    
-    _isLoading = false;
-    notifyListeners();
     return false;
   }
 
+  // --- ОБНОВЛЕНИЕ (СИНХРОНИЗИРОВАНО С ПОИСКОМ) ---
   Future<bool> updateNote(Note note) async {
-    _isLoading = true;
-    notifyListeners();
-    
     final result = await _noteRepo.updateNote(note);
     
     if (result > 0) {
+      // 1. Обновляем в глобальном списке поиска
+      final index = _allNotes.indexWhere((n) => n.id == note.id);
+      if (index != -1) {
+        _allNotes[index] = note;
+      }
+
+      // 2. Обновляем в текущем просмотре
       if (note.folderId != null) {
         await _refreshFolderContent(note.folderId!, note.userId);
-      } else if (_currentFolder != null) {
-        _currentNotes = await _folderRepo.getNotesInFolder(_currentFolder!.userId, _currentFolder!.id!);
       } else {
         _rootNotes = await _noteRepo.getNotesWithoutFolder(note.userId);
+        if (_currentFolder == null) _currentNotes = []; // если мы в корне
       }
+      notifyListeners();
+      return true;
     }
-    
-    _isLoading = false;
-    notifyListeners();
-    return result > 0;
+    return false;
   }
 
+  // --- УДАЛЕНИЕ ---
   Future<bool> deleteNote(int noteId, int userId) async {
-    _isLoading = true;
-    notifyListeners();
-    
-    // Сначала получаем заметку чтобы знать её folderId
     final note = await _noteRepo.getNoteById(noteId, userId);
     final folderId = note?.folderId;
     
     final result = await _noteRepo.deleteNote(noteId, userId);
-    
     if (result > 0) {
+      // Удаляем из списка поиска
+      _allNotes.removeWhere((n) => n.id == noteId);
+
       if (folderId != null) {
         await _refreshFolderContent(folderId, userId);
-      } else if (_currentFolder != null) {
-        _currentNotes = await _folderRepo.getNotesInFolder(userId, _currentFolder!.id!);
       } else {
         _rootNotes = await _noteRepo.getNotesWithoutFolder(userId);
       }
+      notifyListeners();
+      return true;
     }
-    
-    _isLoading = false;
-    notifyListeners();
-    return result > 0;
+    return false;
   }
 
   Future<bool> deleteFolder(Folder folder, int userId) async {
-    _isLoading = true;
-    notifyListeners();
-    
     final result = await _folderRepo.deleteFolder(folder.id!, userId);
-    
     if (result > 0) {
+      // При удалении папки удаляем и её заметки из поиска
+      _allNotes.removeWhere((n) => n.folderId == folder.id);
+
       if (folder.parentId != null) {
         await _refreshFolderContent(folder.parentId!, userId);
-      } else if (_currentFolder?.id == folder.id) {
-        goBack();
-        await loadRootFolders(userId);
-      } else if (_currentFolder == null) {
-        await loadRootFolders(userId);
       } else {
-        _currentSubfolders = await _folderRepo.getSubfolders(userId, _currentFolder!.id!);
+        await loadRootFolders(userId);
       }
+      notifyListeners();
+      return true;
     }
-    
-    _isLoading = false;
-    notifyListeners();
-    return result > 0;
+    return false;
   }
 
+  // --- ВСПОМОГАТЕЛЬНЫЕ ---
   Future<void> _refreshFolderContent(int folderId, int userId) async {
-    // Обновляем подпапки и заметки конкретной папки
     final updatedSubfolders = await _folderRepo.getSubfolders(userId, folderId);
     final updatedNotes = await _folderRepo.getNotesInFolder(userId, folderId);
     
@@ -207,21 +202,17 @@ class FolderProvider extends ChangeNotifier {
       _currentSubfolders = updatedSubfolders;
       _currentNotes = updatedNotes;
     }
-    
-    // Обновляем в корневом дереве
-    await _updateFolderInTree(_rootFolders, folderId, updatedSubfolders, updatedNotes);
+    await _updateFolderInTree(_rootFolders, folderId, updatedSubfolders);
   }
 
-  Future<void> _updateFolderInTree(List<Folder> folders, int folderId, List<Folder> subfolders, List<Note> notes) async {
+  Future<void> _updateFolderInTree(List<Folder> folders, int folderId, List<Folder> subfolders) async {
     for (var i = 0; i < folders.length; i++) {
       if (folders[i].id == folderId) {
-        folders[i] = folders[i].copyWith(
-          subfolders: subfolders,
-        );
+        folders[i] = folders[i].copyWith(subfolders: subfolders);
         break;
       }
       if (folders[i].subfolders != null && folders[i].subfolders!.isNotEmpty) {
-        await _updateFolderInTree(folders[i].subfolders!, folderId, subfolders, notes);
+        await _updateFolderInTree(folders[i].subfolders!, folderId, subfolders);
       }
     }
   }
@@ -229,9 +220,23 @@ class FolderProvider extends ChangeNotifier {
   void clear() {
     _rootFolders = [];
     _rootNotes = [];
+    _allNotes = [];
     _currentFolder = null;
     _currentSubfolders = [];
     _currentNotes = [];
     notifyListeners();
   }
+  Note? getNoteByTitle(String title) {
+  // Убираем лишние пробелы и переводим в нижний регистр для точного сравнения
+  final cleanSearchTitle = title.trim().toLowerCase();
+  
+  try {
+    return _allNotes.firstWhere(
+      (n) => n.title.trim().toLowerCase() == cleanSearchTitle
+    );
+  } catch (e) {
+    debugPrint("Заметка с названием '$cleanSearchTitle' не найдена в _allNotes");
+    return null;
+  }
+}
 }

@@ -20,6 +20,14 @@ class Note {
     this.tags,
     this.images,
   });
+  
+bool matchesQuery(String query) {
+    final q = query.toLowerCase();
+    final titleMatch = title.toLowerCase().contains(q);
+    final contentMatch = content?.toLowerCase().contains(q) ?? false;
+    final tagMatch = tags?.any((t) => t.toLowerCase().contains(q)) ?? false;
+    return titleMatch || contentMatch || tagMatch;
+  }
 
   Map<String, dynamic> toMap() {
     return {
@@ -43,6 +51,7 @@ class Note {
       createdAt: map['created_at'],
       updatedAt: map['updated_at'],
     );
+    
   }
 
   Note copyWith({
@@ -67,5 +76,6 @@ class Note {
       tags: tags ?? this.tags,
       images: images ?? this.images,
     );
+    
   }
 }
