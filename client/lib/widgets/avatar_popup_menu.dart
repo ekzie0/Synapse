@@ -1,6 +1,9 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:synapse/database/models/user_model.dart';
+import 'package:synapse/providers/auth_provider.dart';
 import 'package:synapse/screens/settings_screen.dart';
-// import 'package:synapse/screens/profile_screen.dart';
 
 class AvatarPopupMenu extends StatelessWidget {
   final VoidCallback? onProfileTap;
@@ -22,47 +25,24 @@ class AvatarPopupMenu extends StatelessWidget {
       builder: (BuildContext context) {
         return AlertDialog(
           backgroundColor: colorScheme.surface,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          title: const Text(
-            'Выход',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-          ),
-          content: const Text(
-            'Вы уверены, что хотите выйти?',
-            style: TextStyle(fontSize: 15),
-          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text('Выход', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+          content: const Text('Вы уверены, что хотите выйти?', style: TextStyle(fontSize: 15)),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: Text(
-                'Отмена',
-                style: TextStyle(
-                  color: Colors.grey[400],
-                  fontSize: 15,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
+              child: Text('Отмена', style: TextStyle(color: Colors.grey[400])),
             ),
             TextButton(
               onPressed: () {
                 Navigator.pop(context);
+                final authProvider = Provider.of<AuthProvider>(context, listen: false);
+                authProvider.logout();
                 if (onLogoutTap != null) {
                   onLogoutTap!();
-                } else {
-                  print('Выход из аккаунта');
-                  // TODO: добавить реальный выход
                 }
               },
-              child: const Text(
-                'Выйти',
-                style: TextStyle(
-                  color: Colors.red,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
+              child: const Text('Выйти', style: TextStyle(color: Colors.red)),
             ),
           ],
         );
@@ -73,88 +53,51 @@ class AvatarPopupMenu extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-
+    final authProvider = Provider.of<AuthProvider>(context);
+    final user = authProvider.currentUser;
+    
     return PopupMenuButton<String>(
       offset: const Offset(0, 40),
       color: colorScheme.surface,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       splashRadius: 1,
-      
-      icon: Icon(
-        Icons.account_circle_outlined,
-        size: 28,
-        color: colorScheme.primary,
-      ),
-
+      child: _buildAvatar(context, user),
       itemBuilder: (context) => [
         PopupMenuItem(
           value: 'profile',
           height: 48,
           child: Row(
             children: [
-              Icon(
-                Icons.person_outline,
-                size: 22,
-                color: colorScheme.primary,
-              ),
+              Icon(Icons.person_outline, size: 22, color: colorScheme.primary),
               const SizedBox(width: 12),
-              const Text(
-                'Профиль',
-                style: TextStyle(fontSize: 16),
-              ),
+              const Text('Профиль', style: TextStyle(fontSize: 16)),
             ],
           ),
         ),
-        
         PopupMenuItem(
           value: 'settings',
           height: 48,
           child: Row(
             children: [
-              Icon(
-                Icons.settings_outlined,
-                size: 22,
-                color: colorScheme.primary,
-              ),
+              Icon(Icons.settings_outlined, size: 22, color: colorScheme.primary),
               const SizedBox(width: 12),
-              const Text(
-                'Настройки',
-                style: TextStyle(fontSize: 16),
-              ),
+              const Text('Настройки', style: TextStyle(fontSize: 16)),
             ],
           ),
         ),
-        
-        const PopupMenuDivider(
-          height: 1,
-          thickness: 1,
-        ),
-        
+        const PopupMenuDivider(height: 1, thickness: 1),
         PopupMenuItem(
           value: 'logout',
           height: 48,
           child: Row(
             children: [
-              Icon(
-                Icons.logout,
-                size: 22,
-                color: Colors.red[400],
-              ),
+              Icon(Icons.logout, size: 22, color: Colors.red[400]),
               const SizedBox(width: 12),
-              Text(
-                'Выйти',
-                style: TextStyle(
-                  fontSize: 16,
-                  color: Colors.red[400],
-                ),
-              ),
+              Text('Выйти', style: TextStyle(fontSize: 16, color: Colors.red[400])),
             ],
           ),
         ),
       ],
-
       onSelected: (value) {
         switch (value) {
           case 'profile':
@@ -162,14 +105,8 @@ class AvatarPopupMenu extends StatelessWidget {
               onProfileTap!();
             } else {
               print('Профиль');
-              // TODO: раскомментировать, когда создашь profile_screen.dart
-              // Navigator.push(
-              //   context,
-              //   MaterialPageRoute(builder: (context) => const ProfileScreen()),
-              // );
             }
             break;
-            
           case 'settings':
             if (onSettingsTap != null) {
               onSettingsTap!();
@@ -180,12 +117,45 @@ class AvatarPopupMenu extends StatelessWidget {
               );
             }
             break;
-            
           case 'logout':
             _showLogoutDialog(context);
             break;
         }
       },
+    );
+  }
+
+  Widget _buildAvatar(BuildContext context, User? user) {
+    final colorScheme = Theme.of(context).colorScheme;
+    
+    // Если есть аватарка и путь не пустой
+    if (user?.avatarPath != null && user!.avatarPath!.isNotEmpty) {
+      final file = File(user.avatarPath!);
+      if (file.existsSync()) {
+        return CircleAvatar(
+          radius: 18,
+          backgroundImage: FileImage(file),
+        );
+      }
+    }
+    
+    // Если есть цвет аватарки
+    if (user?.avatarColor != null && user!.avatarColor!.isNotEmpty) {
+      return CircleAvatar(
+        radius: 18,
+        backgroundColor: Color(int.parse(user.avatarColor!.substring(1, 7), radix: 16) + 0xFF000000),
+        child: Text(
+          user.username.isNotEmpty ? user.username[0].toUpperCase() : '?',
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+        ),
+      );
+    }
+    
+    // По умолчанию - иконка
+    return Icon(
+      Icons.account_circle_outlined,
+      size: 36,
+      color: colorScheme.primary,
     );
   }
 }
