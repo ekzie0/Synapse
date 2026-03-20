@@ -12,64 +12,66 @@ class AppTheme {
     required this.brightness,
   });
 
-  // Предустановленные цвета
   static const List<Color> accentColors = [
-    Color(0xFF8B7EF6), // фиолетовый (дефолтный)
-    Color(0xFFE57373), // красный
-    Color(0xFF64B5F6), // синий
-    Color(0xFF81C784), // зеленый
-    Color(0xFFFFB74D), // оранжевый
-    Color(0xFFBA68C8), // розовый
-    Color(0xFF4FC3F7), // голубой
-    Color(0xFFF06292), // розово-красный
-    Color(0xFFAED581), // салатовый
-    Color(0xFFFF8A65), // коралловый
+    Color(0xFF8B7EF6),
+    Color(0xFFE57373),
+    Color(0xFF64B5F6),
+    Color(0xFF81C784),
+    Color(0xFFFFB74D),
+    Color(0xFFBA68C8),
+    Color(0xFF4FC3F7),
+    Color(0xFFF06292),
+    Color(0xFFAED581),
+    Color(0xFFFF8A65),
   ];
 
-  // Базовая темная тема
   static const dark = AppTheme(
     name: 'Темная',
     primaryColor: Color(0xFF8B7EF6),
     brightness: Brightness.dark,
   );
 
-  // Базовая светлая тема
   static const light = AppTheme(
     name: 'Светлая',
     primaryColor: Color(0xFF8B7EF6),
     brightness: Brightness.light,
   );
 
-  // Системная тема
   static const system = AppTheme(
     name: 'Системная',
     primaryColor: Color(0xFF8B7EF6),
-    brightness: Brightness.dark, // заглушка
+    brightness: Brightness.dark,
   );
 
-  // Создание ThemeData из модели
   ThemeData toThemeData() {
-    // Создаем базовую тему
+    // Фиксированные цвета для поверхностей
+    final Color surfaceColor = brightness == Brightness.dark
+        ? const Color(0xFF1E1E1E)
+        : Colors.white;
+    
+    final Color backgroundColor = brightness == Brightness.dark
+        ? const Color(0xFF121212)
+        : const Color(0xFFF5F5F5);
+
+    // Создаем colorScheme, но переопределяем surface и background
     final colorScheme = ColorScheme.fromSeed(
       seedColor: primaryColor,
       brightness: brightness,
     ).copyWith(
-      surface: brightness == Brightness.dark 
-          ? const Color(0xFF1E1E1E) 
-          : Colors.white,
-      // background больше не используем (deprecated)
+      surface: surfaceColor,
+      background: backgroundColor,
+      primary: primaryColor, // акцентный цвет
+      secondary: primaryColor,
+      tertiary: primaryColor,
     );
 
     return ThemeData(
-      useMaterial3: false,
+      useMaterial3: true,
       colorScheme: colorScheme,
-      scaffoldBackgroundColor: brightness == Brightness.dark
-          ? const Color(0xFF121212)
-          : const Color(0xFFF5F5F5),
+      scaffoldBackgroundColor: backgroundColor,
       splashFactory: NoSplash.splashFactory,
       highlightColor: Colors.transparent,
       
-      // 👇 Правильный способ задать шрифт
       textTheme: _getTextTheme(brightness).apply(
         fontFamily: 'SF Pro',
         fontFamilyFallback: const [
@@ -80,13 +82,10 @@ class AppTheme {
         ],
       ),
       
-      // 👇 Для Cupertino (iOS стиль)
       cupertinoOverrideTheme: CupertinoThemeData(
         brightness: brightness,
         primaryColor: primaryColor,
-        barBackgroundColor: brightness == Brightness.dark
-            ? const Color(0xFF1E1E1E)
-            : Colors.white,
+        barBackgroundColor: surfaceColor,
         textTheme: CupertinoTextThemeData(
           primaryColor: primaryColor,
           textStyle: TextStyle(

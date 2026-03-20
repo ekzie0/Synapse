@@ -19,11 +19,9 @@ class _RgbColorPickerState extends State<RgbColorPicker> {
   late double _saturation;
   late double _value;
   
-  // Для перетаскивания по палитре
   Offset _pickerPosition = Offset.zero;
   
-  // Размеры
-  final double _paletteSize = 250;
+  final double _paletteSize = 200;
   final double _handleSize = 16;
   final double _sliderWidth = 30;
 
@@ -34,7 +32,6 @@ class _RgbColorPickerState extends State<RgbColorPicker> {
     _hue = hsv.hue;
     _saturation = hsv.saturation;
     _value = hsv.value;
-    
     _updatePickerPositionFromSV();
   }
 
@@ -58,7 +55,7 @@ class _RgbColorPickerState extends State<RgbColorPicker> {
     });
   }
 
-  void _updateHueFromPosition(double dy) {
+  void _updateHue(double dy) {
     setState(() {
       final newHue = (dy.clamp(0, _paletteSize) / _paletteSize) * 360;
       _hue = newHue.clamp(0, 360).toDouble();
@@ -71,48 +68,62 @@ class _RgbColorPickerState extends State<RgbColorPicker> {
 
     return AlertDialog(
       backgroundColor: colorScheme.surface,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20),
-      ),
-      title: const Text(
-        'Выберите цвет',
-        style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      title: const Text('Выберите цвет', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
       content: Container(
-        width: 400,
-        padding: const EdgeInsets.symmetric(vertical: 8),
+        width: 280,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Превью выбранного цвета
-            _buildPreview(),
-            
+            Container(
+              width: double.infinity,
+              height: 50,
+              decoration: BoxDecoration(
+                color: currentColor,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.white.withOpacity(0.2), width: 2),
+                boxShadow: [
+                  BoxShadow(
+                    color: currentColor.withValues(alpha: 0.3),
+                    blurRadius: 8,
+                  )
+                ],
+              ),
+            ),
             const SizedBox(height: 20),
-            
-            // Основной пикер
             Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 _buildColorPalette(),
                 const SizedBox(width: 16),
                 _buildHueSlider(),
               ],
             ),
-            
             const SizedBox(height: 20),
-            
-            // Информация о цвете
-            _buildColorInfo(),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: colorScheme.primary.withOpacity(0.05),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                '#${currentColor.value.toRadixString(16).substring(2).toUpperCase()}',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: currentColor,
+                  fontFamily: 'monospace',
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ),
           ],
         ),
       ),
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: Text(
-            'Отмена',
-            style: TextStyle(color: Colors.grey[400]),
-          ),
+          child: Text('Отмена', style: TextStyle(color: Colors.grey[400])),
         ),
         ElevatedButton(
           onPressed: () {
@@ -122,35 +133,11 @@ class _RgbColorPickerState extends State<RgbColorPicker> {
           style: ElevatedButton.styleFrom(
             backgroundColor: colorScheme.primary,
             foregroundColor: Colors.white,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-            ),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ),
           child: const Text('Выбрать'),
         ),
       ],
-    );
-  }
-
-  Widget _buildPreview() {
-    return Container(
-      width: double.infinity,
-      height: 50,
-      decoration: BoxDecoration(
-        color: currentColor,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: Colors.white.withOpacity(0.2),
-          width: 2,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: currentColor.withOpacity(0.3),
-            blurRadius: 8,
-            spreadRadius: 0,
-          ),
-        ],
-      ),
     );
   }
 
@@ -163,53 +150,37 @@ class _RgbColorPickerState extends State<RgbColorPicker> {
         height: _paletteSize,
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: Colors.white.withOpacity(0.2),
-            width: 1,
-          ),
+          border: Border.all(color: Colors.white.withOpacity(0.2), width: 1),
         ),
         child: Stack(
           fit: StackFit.expand,
           children: [
-            // Базовый цвет (оттенок)
             Container(
               decoration: BoxDecoration(
                 color: HSVColor.fromAHSV(1, _hue, 1, 1).toColor(),
                 borderRadius: BorderRadius.circular(12),
               ),
             ),
-            
-            // Градиент белого (убираем насыщенность слева)
             Container(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   begin: Alignment.centerLeft,
                   end: Alignment.centerRight,
-                  colors: [
-                    Colors.white,
-                    Colors.transparent,
-                  ],
+                  colors: [Colors.white, Colors.transparent],
                 ),
                 borderRadius: BorderRadius.circular(12),
               ),
             ),
-            
-            // Градиент черного (убираем яркость сверху)
             Container(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.transparent,
-                    Colors.black,
-                  ],
+                  colors: [Colors.transparent, Colors.black],
                 ),
                 borderRadius: BorderRadius.circular(12),
               ),
             ),
-            
-            // Пикер
             Positioned(
               left: _pickerPosition.dx - _handleSize / 2,
               top: _pickerPosition.dy - _handleSize / 2,
@@ -218,16 +189,9 @@ class _RgbColorPickerState extends State<RgbColorPicker> {
                 height: _handleSize,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  border: Border.all(
-                    color: Colors.white,
-                    width: 2.5,
-                  ),
+                  border: Border.all(color: Colors.white, width: 2.5),
                   boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.3),
-                      blurRadius: 4,
-                      spreadRadius: 1,
-                    ),
+                    BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 4, spreadRadius: 1),
                   ],
                 ),
               ),
@@ -240,8 +204,8 @@ class _RgbColorPickerState extends State<RgbColorPicker> {
 
   Widget _buildHueSlider() {
     return GestureDetector(
-      onPanStart: (details) => _updateHueFromPosition(details.localPosition.dy),
-      onPanUpdate: (details) => _updateHueFromPosition(details.localPosition.dy),
+      onPanStart: (details) => _updateHue(details.localPosition.dy),
+      onPanUpdate: (details) => _updateHue(details.localPosition.dy),
       child: Container(
         width: _sliderWidth,
         height: _paletteSize,
@@ -251,25 +215,14 @@ class _RgbColorPickerState extends State<RgbColorPicker> {
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
             colors: [
-              Color(0xFFFF0000), // 0° - Красный
-              Color(0xFFFF8800), // 30° - Оранжевый
-              Color(0xFFFFFF00), // 60° - Желтый
-              Color(0xFF88FF00), // 90° - Желто-зеленый
-              Color(0xFF00FF00), // 120° - Зеленый
-              Color(0xFF00FF88), // 150° - Зелено-голубой
-              Color(0xFF00FFFF), // 180° - Голубой
-              Color(0xFF0088FF), // 210° - Сине-голубой
-              Color(0xFF0000FF), // 240° - Синий
-              Color(0xFF8800FF), // 270° - Фиолетовый
-              Color(0xFFFF00FF), // 300° - Пурпурный
-              Color(0xFFFF0088), // 330° - Розовый
-              Color(0xFFFF0000), // 360° - Красный
+              Color(0xFFFF0000), Color(0xFFFF8800), Color(0xFFFFFF00),
+              Color(0xFF88FF00), Color(0xFF00FF00), Color(0xFF00FF88),
+              Color(0xFF00FFFF), Color(0xFF0088FF), Color(0xFF0000FF),
+              Color(0xFF8800FF), Color(0xFFFF00FF), Color(0xFFFF0088),
+              Color(0xFFFF0000),
             ],
           ),
-          border: Border.all(
-            color: Colors.white.withOpacity(0.2),
-            width: 1,
-          ),
+          border: Border.all(color: Colors.white.withOpacity(0.2), width: 1),
         ),
         child: Stack(
           children: [
@@ -282,15 +235,9 @@ class _RgbColorPickerState extends State<RgbColorPicker> {
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(4),
-                  border: Border.all(
-                    color: Colors.black.withOpacity(0.3),
-                    width: 1,
-                  ),
+                  border: Border.all(color: Colors.black.withOpacity(0.3), width: 1),
                   boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.3),
-                      blurRadius: 4,
-                    ),
+                    BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 4)
                   ],
                 ),
               ),
@@ -298,65 +245,6 @@ class _RgbColorPickerState extends State<RgbColorPicker> {
           ],
         ),
       ),
-    );
-  }
-
-  Widget _buildColorInfo() {
-    final colorScheme = Theme.of(context).colorScheme;
-    
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: colorScheme.primary.withOpacity(0.05),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          _buildInfoItem('R', currentColor.red, Colors.red),
-          _buildInfoItem('G', currentColor.green, Colors.green),
-          _buildInfoItem('B', currentColor.blue, Colors.blue),
-          Container(
-            width: 1,
-            height: 20,
-            color: Colors.white.withOpacity(0.1),
-          ),
-          _buildInfoItem(
-            'HEX',
-            '#${currentColor.value.toRadixString(16).substring(2).toUpperCase()}',
-            colorScheme.primary,
-            isHex: true,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildInfoItem(String label, dynamic value, Color color, {bool isHex = false}) {
-    final theme = Theme.of(context);
-    
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          label,
-          style: theme.textTheme.labelLarge?.copyWith(
-            fontSize: 11,
-            color: Colors.grey[500],
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          value.toString(),
-          style: TextStyle(
-            fontSize: isHex ? 12 : 14,
-            fontWeight: FontWeight.w600,
-            color: color,
-            fontFamily: isHex ? 'monospace' : null,
-            letterSpacing: isHex ? 0.5 : 0,
-          ),
-        ),
-      ],
     );
   }
 }

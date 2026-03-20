@@ -16,19 +16,24 @@ class ThemeProvider extends ChangeNotifier {
     _loadSavedTheme();
   }
 
-  // Загрузка сохраненных настроек
   Future<void> _loadSavedTheme() async {
     final prefs = await SharedPreferences.getInstance();
     
-    // Загружаем режим темы
+    // Загружаем сохраненную тему
     final savedThemeMode = prefs.getString(_themeModeKey) ?? 'Темная';
     _useSystemTheme = savedThemeMode == 'Системная';
     
-    // Загружаем акцентный цвет
+    // Загружаем сохраненный цвет
     final savedColor = prefs.getInt(_accentColorKey);
-    final accentColor = savedColor != null 
-        ? Color(savedColor)
-        : const Color(0xFF8B7EF6); // дефолтный фиолетовый
+    Color accentColor;
+    
+    if (savedColor != null) {
+      accentColor = Color(savedColor);
+      print('Загружен цвет: $accentColor'); // Для отладки
+    } else {
+      accentColor = const Color(0xFF8B7EF6);
+      print('Используем цвет по умолчанию');
+    }
     
     if (_useSystemTheme) {
       final brightness = WidgetsBinding.instance.platformDispatcher.platformBrightness;
@@ -45,17 +50,17 @@ class ThemeProvider extends ChangeNotifier {
       );
     }
     
+    print('Текущая тема: ${_currentTheme.name}, цвет: ${_currentTheme.primaryColor}');
     notifyListeners();
   }
 
-  // Сохранение настроек
   Future<void> _saveThemeSettings() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_themeModeKey, _currentTheme.name);
     await prefs.setInt(_accentColorKey, _currentTheme.primaryColor.value);
+    print('Сохранена тема: ${_currentTheme.name}, цвет: ${_currentTheme.primaryColor.value}');
   }
 
-  // Смена темы
   Future<void> setThemeMode(String mode) async {
     if (mode == 'system') {
       _useSystemTheme = true;
@@ -78,8 +83,8 @@ class ThemeProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  // Смена акцентного цвета
   Future<void> setAccentColor(Color color) async {
+    print('Устанавливаем новый цвет: $color');
     _currentTheme = AppTheme(
       name: _currentTheme.name,
       primaryColor: color,
@@ -90,7 +95,6 @@ class ThemeProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  // Обновление при изменении системной темы
   void updateSystemTheme(Brightness brightness) {
     if (_useSystemTheme) {
       _currentTheme = AppTheme(

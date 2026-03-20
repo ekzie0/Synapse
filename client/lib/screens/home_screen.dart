@@ -63,8 +63,6 @@ class HomeScreen extends StatelessWidget {
                     size: 34,
                     color: isDark ? Colors.white : Colors.black,
                   ),
-                  
-                  // 👇 Меняем Container на AvatarPopupMenu
                   const AvatarPopupMenu(),
                 ],
               ),
@@ -74,7 +72,7 @@ class HomeScreen extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 6, 20, 4),
               child: Container(
-                height: 42, // 👈 увеличил высоту для удобства
+                height: 42,
                 decoration: BoxDecoration(
                   color: colorScheme.surface,
                   borderRadius: BorderRadius.circular(12),
@@ -89,7 +87,7 @@ class HomeScreen extends StatelessWidget {
                       color: const Color.fromARGB(255, 206, 206, 206),
                     ),
                     border: InputBorder.none,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
                     prefixIcon: Padding(
                       padding: const EdgeInsets.only(left: 16, right: 8),
                       child: Icon(

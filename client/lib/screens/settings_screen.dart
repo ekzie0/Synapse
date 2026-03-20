@@ -21,7 +21,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       'title': 'Аккаунт',
     },
     {
-      'icon': Icons.app_settings_alt_outlined,
+      'icon': Icons.computer_outlined,
       'title': 'Приложение',
     },
     {
