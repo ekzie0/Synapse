@@ -107,10 +107,14 @@ class AvatarPopupMenu extends StatelessWidget {
       onSelected: (value) {
         switch (value) {
           case 'profile':
+            // При нажатии на "Профиль" открываем настройки
             if (onProfileTap != null) {
               onProfileTap!();
             } else {
-              print('Профиль');
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const SettingsScreen()),
+              );
             }
             break;
           case 'settings':

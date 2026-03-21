@@ -3,52 +3,56 @@ import 'package:synapse/database/models/folder_model.dart';
 import 'package:synapse/database/models/note_model.dart';
 import 'package:synapse/database/repositories/folder_repository.dart';
 import 'package:synapse/database/repositories/note_repository.dart';
+import 'package:synapse/database/repositories/link_repository.dart';
 
 class FolderProvider extends ChangeNotifier {
   final FolderRepository _folderRepo = FolderRepository();
   final NoteRepository _noteRepo = NoteRepository();
+  final LinkRepository _linkRepo = LinkRepository();
   
   List<Folder> _rootFolders = [];
   Folder? _currentFolder;
   List<Folder> _currentSubfolders = [];
   List<Note> _currentNotes = [];
   List<Note> _rootNotes = [];
-  
-  // Плоский список ВСЕХ заметок для мгновенного поиска по всему приложению
-  List<Note> _allNotes = []; 
+  List<Note> _allNotes = [];
   
   bool _isLoading = false;
 
-  // Геттеры
   List<Folder> get rootFolders => _rootFolders;
   Folder? get currentFolder => _currentFolder;
   List<Folder> get currentSubfolders => _currentSubfolders;
   List<Note> get currentNotes => _currentNotes;
   List<Note> get rootNotes => _rootNotes;
-  List<Note> get allNotes => _allNotes; // Для внешнего доступа
+  List<Note> get allNotes => _allNotes;
   bool get isLoading => _isLoading;
   bool get isInRoot => _currentFolder == null;
 
-  // --- ПОИСК ---
+  // Поиск
   List<Note> searchAllNotes(String query) {
     if (query.isEmpty) return [];
-    // Используем метод matchesQuery из модели Note
-    return _allNotes.where((note) => note.matchesQuery(query)).toList();
+    final lowerQuery = query.toLowerCase();
+    return _allNotes.where((note) {
+      if (note.title.toLowerCase().contains(lowerQuery)) return true;
+      if (note.content != null && note.content!.toLowerCase().contains(lowerQuery)) return true;
+      if (note.tags != null) {
+        for (var tag in note.tags!) {
+          if (tag.toLowerCase().contains(lowerQuery)) return true;
+        }
+      }
+      return false;
+    }).toList();
   }
 
-  // --- ЗАГРУЗКА ДАННЫХ ---
   Future<void> loadRootFolders(int userId) async {
     _isLoading = true;
     notifyListeners();
     
-    // Загружаем структуру для дерева
     _rootFolders = await _folderRepo.getRootFolders(userId);
     _rootNotes = await _noteRepo.getNotesWithoutFolder(userId);
+    _allNotes = await _noteRepo.getAllNotes(userId);
     
-    // ЗАГРУЖАЕМ ВСЕ ЗАМЕТКИ ДЛЯ ПОИСКА (Критически важно!)
-    _allNotes = await _noteRepo.getAllNotes(userId); 
-  print("Загружено заметок для поиска: ${_allNotes.length}"); // Добавь этот принт для отладки
-  notifyListeners();
+    print("Загружено заметок для поиска: ${_allNotes.length}");
     
     for (var i = 0; i < _rootFolders.length; i++) {
       final subfolders = await _folderRepo.getSubfolders(userId, _rootFolders[i].id!);
@@ -58,9 +62,11 @@ class FolderProvider extends ChangeNotifier {
     _isLoading = false;
     notifyListeners();
   }
-Future<List<Folder>> getSubfolders(int userId, int folderId) async {
+
+  Future<List<Folder>> getSubfolders(int folderId, int userId) async {
     return await _folderRepo.getSubfolders(userId, folderId);
   }
+
   Future<void> openFolder(Folder folder, int userId) async {
     _isLoading = true;
     notifyListeners();
@@ -80,7 +86,6 @@ Future<List<Folder>> getSubfolders(int userId, int folderId) async {
     notifyListeners();
   }
 
-  // --- СОЗДАНИЕ ---
   Future<bool> createFolder(String name, int userId, {int? parentFolderId}) async {
     final now = DateTime.now().millisecondsSinceEpoch;
     final folder = Folder(
@@ -116,9 +121,11 @@ Future<List<Folder>> getSubfolders(int userId, int folderId) async {
     
     final id = await _noteRepo.createNote(note);
     if (id > 0) {
-      // Добавляем в общий список для поиска без перезагрузки всей БД
       final createdNote = note.copyWith(id: id);
       _allNotes.add(createdNote);
+      
+      // Обновляем связи
+      await _linkRepo.updateLinksForNote(createdNote, _allNotes);
 
       if (folderId != null) {
         _currentNotes = await _folderRepo.getNotesInFolder(userId, folderId);
@@ -131,23 +138,23 @@ Future<List<Folder>> getSubfolders(int userId, int folderId) async {
     return false;
   }
 
-  // --- ОБНОВЛЕНИЕ (СИНХРОНИЗИРОВАНО С ПОИСКОМ) ---
   Future<bool> updateNote(Note note) async {
     final result = await _noteRepo.updateNote(note);
     
     if (result > 0) {
-      // 1. Обновляем в глобальном списке поиска
+      // Обновляем связи
+      await _linkRepo.updateLinksForNote(note, _allNotes);
+      
       final index = _allNotes.indexWhere((n) => n.id == note.id);
       if (index != -1) {
         _allNotes[index] = note;
       }
 
-      // 2. Обновляем в текущем просмотре
       if (note.folderId != null) {
         await _refreshFolderContent(note.folderId!, note.userId);
       } else {
         _rootNotes = await _noteRepo.getNotesWithoutFolder(note.userId);
-        if (_currentFolder == null) _currentNotes = []; // если мы в корне
+        if (_currentFolder == null) _currentNotes = [];
       }
       notifyListeners();
       return true;
@@ -155,14 +162,12 @@ Future<List<Folder>> getSubfolders(int userId, int folderId) async {
     return false;
   }
 
-  // --- УДАЛЕНИЕ ---
   Future<bool> deleteNote(int noteId, int userId) async {
     final note = await _noteRepo.getNoteById(noteId, userId);
     final folderId = note?.folderId;
     
     final result = await _noteRepo.deleteNote(noteId, userId);
     if (result > 0) {
-      // Удаляем из списка поиска
       _allNotes.removeWhere((n) => n.id == noteId);
 
       if (folderId != null) {
@@ -179,7 +184,6 @@ Future<List<Folder>> getSubfolders(int userId, int folderId) async {
   Future<bool> deleteFolder(Folder folder, int userId) async {
     final result = await _folderRepo.deleteFolder(folder.id!, userId);
     if (result > 0) {
-      // При удалении папки удаляем и её заметки из поиска
       _allNotes.removeWhere((n) => n.folderId == folder.id);
 
       if (folder.parentId != null) {
@@ -193,7 +197,6 @@ Future<List<Folder>> getSubfolders(int userId, int folderId) async {
     return false;
   }
 
-  // --- ВСПОМОГАТЕЛЬНЫЕ ---
   Future<void> _refreshFolderContent(int folderId, int userId) async {
     final updatedSubfolders = await _folderRepo.getSubfolders(userId, folderId);
     final updatedNotes = await _folderRepo.getNotesInFolder(userId, folderId);
@@ -217,6 +220,17 @@ Future<List<Folder>> getSubfolders(int userId, int folderId) async {
     }
   }
 
+  Note? getNoteByTitle(String title) {
+    final cleanSearchTitle = title.trim().toLowerCase();
+    try {
+      return _allNotes.firstWhere(
+        (n) => n.title.trim().toLowerCase() == cleanSearchTitle
+      );
+    } catch (e) {
+      return null;
+    }
+  }
+
   void clear() {
     _rootFolders = [];
     _rootNotes = [];
@@ -226,17 +240,4 @@ Future<List<Folder>> getSubfolders(int userId, int folderId) async {
     _currentNotes = [];
     notifyListeners();
   }
-  Note? getNoteByTitle(String title) {
-  // Убираем лишние пробелы и переводим в нижний регистр для точного сравнения
-  final cleanSearchTitle = title.trim().toLowerCase();
-  
-  try {
-    return _allNotes.firstWhere(
-      (n) => n.title.trim().toLowerCase() == cleanSearchTitle
-    );
-  } catch (e) {
-    debugPrint("Заметка с названием '$cleanSearchTitle' не найдена в _allNotes");
-    return null;
-  }
-}
 }

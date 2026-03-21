@@ -1,3 +1,4 @@
+import 'package:sqflite/sqflite.dart';
 import 'package:synapse/database/database_helper.dart';
 import 'package:synapse/database/models/tag_model.dart';
 

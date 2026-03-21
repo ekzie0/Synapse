@@ -30,7 +30,6 @@ class AuthProvider extends ChangeNotifier {
       if (userData != null) {
         final Map<String, dynamic> map = jsonDecode(userData);
         _currentUser = User.fromMap(map);
-        print('👤 Загружен пользователь: ${_currentUser?.username}');
       }
     } catch (e) {
       print('❌ Ошибка: $e');
@@ -76,6 +75,16 @@ class AuthProvider extends ChangeNotifier {
       return false;
     } finally {
       _isLoggingIn = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> updateAvatar(String? avatarPath) async {
+    if (_currentUser != null) {
+      await _userRepo.updateAvatar(_currentUser!.id!, avatarPath);
+      
+      _currentUser = _currentUser!.copyWith(avatarPath: avatarPath);
+      await _saveUser(_currentUser!);
       notifyListeners();
     }
   }

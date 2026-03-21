@@ -1,9 +1,11 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:synapse/database/models/folder_model.dart';
 import 'package:synapse/database/models/note_model.dart';
 import 'package:synapse/providers/auth_provider.dart';
 import 'package:synapse/providers/folder_provider.dart';
+import 'package:synapse/screens/graph_screen.dart';
 import 'package:synapse/widgets/avatar_popup_menu.dart';
 import 'package:synapse/widgets/image_picker_widget.dart';
 import 'package:synapse/widgets/tag_picker.dart';
@@ -426,6 +428,46 @@ class _NotesScreenState extends State<NotesScreen> {
     }
   }
 
+  void _renameNote(Note note) {
+    final TextEditingController renameController = TextEditingController(text: note.title);
+    
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Переименовать заметку'),
+        content: TextField(
+          controller: renameController,
+          autofocus: true,
+          decoration: const InputDecoration(
+            hintText: 'Новое название',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Отмена'),
+          ),
+          TextButton(
+            onPressed: () async {
+              final newTitle = renameController.text.trim();
+              if (newTitle.isNotEmpty && newTitle != note.title) {
+                final updatedNote = note.copyWith(title: newTitle);
+                final folderProvider = Provider.of<FolderProvider>(context, listen: false);
+                await folderProvider.updateNote(updatedNote);
+                _updateNoteInList(updatedNote);
+                if (_selectedNoteId == note.id) {
+                  _noteTitleController.text = newTitle;
+                }
+              }
+              if (mounted) Navigator.pop(context);
+            },
+            child: const Text('Сохранить'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -466,6 +508,16 @@ class _NotesScreenState extends State<NotesScreen> {
                                 : Colors.grey[800],
                           ),
                         ),
+                      ),
+                      IconButton(
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            CupertinoPageRoute(builder: (context) => const GraphScreen()),
+                          );
+                        },
+                        icon: const Icon(Icons.bubble_chart_outlined),
+                        color: colorScheme.primary,
                       ),
                       const AvatarPopupMenu(),
                     ],
@@ -536,20 +588,15 @@ class _NotesScreenState extends State<NotesScreen> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     
-    // Логика определения того, что показать пользователю
     List<Note> notesToShow;
     
     if (_searchQuery.trim().isEmpty) {
-      // ПОИСК ПУСТОЙ: Показываем обычную структуру
       if (provider.isInRoot) {
-        // Мы в корне — берем заметки без папок
         notesToShow = provider.rootNotes;
       } else {
-        // Мы внутри папки — берем заметки этой папки
         notesToShow = provider.currentNotes;
       }
     } else {
-      // ИДЕТ ПОИСК: Игнорируем папки, ищем везде
       final allNotes = [...provider.rootNotes, ...provider.currentNotes];
       final lowerQuery = _searchQuery.toLowerCase();
       notesToShow = allNotes.where((note) {
@@ -563,9 +610,6 @@ class _NotesScreenState extends State<NotesScreen> {
         return false;
       }).toList();
     }
-    
-    // Отладка
-    print('🔍 Заметок к показу: ${notesToShow.length}, isInRoot: ${provider.isInRoot}, searchQuery: "$_searchQuery"');
     
     return GestureDetector(
       onTap: _clearSelection,
@@ -660,13 +704,11 @@ class _NotesScreenState extends State<NotesScreen> {
               children: [
                 ..._buildFolderTree(_rootFolders, provider, userId, 0),
                 
-                // Список заметок
                 if (notesToShow.isNotEmpty) ...[
                   const SizedBox(height: 4),
                   ...notesToShow.map((note) => _buildNoteTile(context, note, provider, userId, null)),
                 ],
                 
-                // Сообщение о пустоте
                 if (_rootFolders.isEmpty && notesToShow.isEmpty && !_isSearching)
                   Center(
                     child: Padding(
@@ -1008,9 +1050,17 @@ class _NotesScreenState extends State<NotesScreen> {
               Text('Редактировать'),
             ],
           ),
-          onTap: () {
-            _openNote(note);
-          },
+          onTap: () => _openNote(note),
+        ),
+        PopupMenuItem(
+          child: const Row(
+            children: [
+              Icon(Icons.drive_file_rename_outline, size: 18),
+              SizedBox(width: 12),
+              Text('Переименовать'),
+            ],
+          ),
+          onTap: () => _renameNote(note),
         ),
         PopupMenuItem(
           child: const Row(
@@ -1132,7 +1182,6 @@ class _NotesScreenState extends State<NotesScreen> {
         
         const SizedBox(height: 16),
         
-        // Кнопка перехода по ссылке под курсором
         ValueListenableBuilder(
           valueListenable: _noteContentController,
           builder: (context, value, child) {
@@ -1158,7 +1207,6 @@ class _NotesScreenState extends State<NotesScreen> {
           },
         ),
         
-        // Поле для содержимого
         Expanded(
           child: TextField(
             controller: _noteContentController,

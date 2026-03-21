@@ -34,7 +34,7 @@ class DatabaseHelper {
     
     return await openDatabase(
       path,
-      version: 3,
+      version: 4,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -57,7 +57,7 @@ class DatabaseHelper {
       )
     ''');
     
-    // Таблица папок (новая)
+    // Таблица папок
     await db.execute('''
       CREATE TABLE folders(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -71,7 +71,7 @@ class DatabaseHelper {
       )
     ''');
     
-    // Таблица заметок (обновленная с folder_id)
+    // Таблица заметок
     await db.execute('''
       CREATE TABLE notes(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -120,6 +120,19 @@ class DatabaseHelper {
       )
     ''');
     
+    // Таблица связей между заметками (для графа)
+    await db.execute('''
+      CREATE TABLE note_links(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_note_id INTEGER NOT NULL,
+        target_note_id INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        FOREIGN KEY(source_note_id) REFERENCES notes(id) ON DELETE CASCADE,
+        FOREIGN KEY(target_note_id) REFERENCES notes(id) ON DELETE CASCADE,
+        UNIQUE(source_note_id, target_note_id)
+      )
+    ''');
+    
     // Создаем тестового пользователя
     final now = DateTime.now().millisecondsSinceEpoch;
     await db.insert('users', {
@@ -148,27 +161,21 @@ class DatabaseHelper {
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    print('📁 Обновляю базу данных с версии $oldVersion до $newVersion...');
+    
     if (oldVersion < 3) {
-      print('📁 Обновляю базу данных до версии $newVersion...');
-      
-      // Создаем таблицу folders
       await db.execute('''
-        CREATE TABLE folders(
+        CREATE TABLE IF NOT EXISTS note_links(
           id INTEGER PRIMARY KEY AUTOINCREMENT,
-          user_id INTEGER NOT NULL,
-          parent_id INTEGER,
-          name TEXT NOT NULL,
+          source_note_id INTEGER NOT NULL,
+          target_note_id INTEGER NOT NULL,
           created_at INTEGER NOT NULL,
-          updated_at INTEGER NOT NULL,
-          FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
-          FOREIGN KEY(parent_id) REFERENCES folders(id) ON DELETE CASCADE
+          FOREIGN KEY(source_note_id) REFERENCES notes(id) ON DELETE CASCADE,
+          FOREIGN KEY(target_note_id) REFERENCES notes(id) ON DELETE CASCADE,
+          UNIQUE(source_note_id, target_note_id)
         )
       ''');
-      
-      // Добавляем колонку folder_id в notes
-      await db.execute('ALTER TABLE notes ADD COLUMN folder_id INTEGER');
-      
-      print('✅ База данных обновлена');
+      print('✅ Таблица note_links добавлена');
     }
   }
 }
