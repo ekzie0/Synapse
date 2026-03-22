@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:synapse/widgets/avatar_popup_menu.dart';
 import 'package:synapse/providers/auth_provider.dart';
 import 'package:synapse/providers/theme_provider.dart';
+import 'package:synapse/providers/sync_provider.dart';
 import 'package:synapse/models/theme_model.dart';
 import 'package:synapse/widgets/rgb_color_picker.dart';
 import 'package:synapse/services/avatar_service.dart';
@@ -557,6 +558,46 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  void _showSyncDialog(BuildContext context, SyncProvider syncProvider) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Wi-Fi синхронизация'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              syncProvider.isAutoSyncRunning 
+                  ? '✅ Синхронизация активна' 
+                  : '⏸ Синхронизация отключена',
+              style: const TextStyle(fontSize: 16),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              syncProvider.syncStatus,
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey[600],
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Устройства в одной Wi-Fi сети будут автоматически обмениваться заметками.',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Закрыть'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -1061,102 +1102,112 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _buildDataSettings(BuildContext context) {
-    return ListView(
-      children: [
-        const SizedBox(height: 8),
-        _buildSettingItem(
-          context,
-          icon: Icons.cloud_sync_outlined,
-          title: 'Синхронизация по Wi-Fi',
-          value: 'Выкл',
-          onTap: () {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Синхронизация в разработке')),
-            );
-          },
-        ),
-        _buildDivider(),
-        _buildSettingItem(
-          context,
-          icon: Icons.storage_outlined,
-          title: 'Использовано памяти',
-          value: 'Вычисляется...',
-          onTap: () async {
-            final dir = await getApplicationDocumentsDirectory();
-            final size = await _getDirectorySize(dir);
-            final sizeMB = size / (1024 * 1024);
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Использовано: ${sizeMB.toStringAsFixed(2)} МБ')),
-            );
-          },
-        ),
-        _buildDivider(),
-        _buildSettingItem(
-          context,
-          icon: Icons.delete_outline,
-          title: 'Очистить кэш',
-          value: 'Очистить',
-          onTap: () async {
-            final dir = await getApplicationDocumentsDirectory();
-            final imagesDir = Directory('${dir.path}/note_images');
-            final avatarsDir = Directory('${dir.path}/avatars');
-            
-            if (await imagesDir.exists()) {
-              await imagesDir.delete(recursive: true);
-            }
-            if (await avatarsDir.exists()) {
-              await avatarsDir.delete(recursive: true);
-            }
-            
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Кэш очищен')),
-              );
-            }
-          },
-          isDestructive: true,
-        ),
-        _buildSettingItem(
-          context,
-          icon: Icons.delete_forever_outlined,
-          title: 'Удалить все заметки',
-          value: 'Необратимо',
-          onTap: () {
-            _showDeleteAllNotesDialog(context);
-          },
-          isDestructive: true,
-        ),
-        _buildDivider(),
-          _buildSettingItem(
-            context,
-            icon: Icons.backup_outlined,
-            title: 'Экспорт (JSON)',
-            value: 'Сохранить все заметки',
-            onTap: () => _exportJson(context),
-          ),
-          _buildSettingItem(
-            context,
-            icon: Icons.text_snippet,
-            title: 'Экспорт (Markdown)',
-            value: 'Сохранить как .md файлы',
-            onTap: () => _exportMarkdown(context),
-          ),
-          _buildSettingItem(
-            context,
-            icon: Icons.restore,
-            title: 'Импорт из JSON',
-            value: 'Восстановить из резервной копии',
-            onTap: () => _importJson(context),
-          ),
-          _buildSettingItem(
-            context,
-            icon: Icons.folder_open,
-            title: 'Импорт из Markdown',
-            value: 'Загрузить папку с .md',
-            onTap: () => _importMarkdown(context),
-          ),
-        const SizedBox(height: 20),
-      ],
+    return Consumer<SyncProvider>(
+      builder: (context, syncProvider, child) {
+        return ListView(
+          children: [
+            const SizedBox(height: 8),
+            _buildSettingItem(
+              context,
+              icon: Icons.wifi,
+              title: 'Wi-Fi синхронизация',
+              value: syncProvider.isAutoSyncRunning ? 'Вкл' : 'Выкл',
+              onTap: () => _showSyncDialog(context, syncProvider),
+              showSwitch: true,
+              switchValue: syncProvider.isAutoSyncRunning,
+              onSwitchChanged: (value) async {
+                if (value) {
+                  await syncProvider.startAutoSync(context);
+                } else {
+                  await syncProvider.stopAutoSync();
+                }
+                setState(() {});
+              },
+            ),
+            _buildDivider(),
+            _buildSettingItem(
+              context,
+              icon: Icons.storage_outlined,
+              title: 'Использовано памяти',
+              value: 'Вычисляется...',
+              onTap: () async {
+                final dir = await getApplicationDocumentsDirectory();
+                final size = await _getDirectorySize(dir);
+                final sizeMB = size / (1024 * 1024);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Использовано: ${sizeMB.toStringAsFixed(2)} МБ')),
+                );
+              },
+            ),
+            _buildDivider(),
+            _buildSettingItem(
+              context,
+              icon: Icons.delete_outline,
+              title: 'Очистить кэш',
+              value: 'Очистить',
+              onTap: () async {
+                final dir = await getApplicationDocumentsDirectory();
+                final imagesDir = Directory('${dir.path}/note_images');
+                final avatarsDir = Directory('${dir.path}/avatars');
+                
+                if (await imagesDir.exists()) {
+                  await imagesDir.delete(recursive: true);
+                }
+                if (await avatarsDir.exists()) {
+                  await avatarsDir.delete(recursive: true);
+                }
+                
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Кэш очищен')),
+                  );
+                }
+              },
+              isDestructive: true,
+            ),
+            _buildSettingItem(
+              context,
+              icon: Icons.delete_forever_outlined,
+              title: 'Удалить все заметки',
+              value: 'Необратимо',
+              onTap: () {
+                _showDeleteAllNotesDialog(context);
+              },
+              isDestructive: true,
+            ),
+            _buildDivider(),
+            _buildSettingItem(
+              context,
+              icon: Icons.backup_outlined,
+              title: 'Экспорт (JSON)',
+              value: 'Сохранить все заметки',
+              onTap: () => _exportJson(context),
+            ),
+            _buildSettingItem(
+              context,
+              icon: Icons.text_snippet,
+              title: 'Экспорт (Markdown)',
+              value: 'Сохранить как .md файлы',
+              onTap: () => _exportMarkdown(context),
+            ),
+            _buildSettingItem(
+              context,
+              icon: Icons.restore,
+              title: 'Импорт из JSON',
+              value: 'Восстановить из резервной копии',
+              onTap: () => _importJson(context),
+            ),
+            _buildSettingItem(
+              context,
+              icon: Icons.folder_open,
+              title: 'Импорт из Markdown',
+              value: 'Загрузить папку с .md',
+              onTap: () => _importMarkdown(context),
+            ),
+            const SizedBox(height: 20),
+          ],
+        );
+      },
     );
   }
 
@@ -1347,6 +1398,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     bool isDestructive = false,
     bool showSwitch = false,
     bool switchValue = false,
+    Function(bool)? onSwitchChanged,
   }) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
@@ -1394,7 +1446,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 if (showSwitch)
                   Switch(
                     value: switchValue,
-                    onChanged: (val) => print('$title: $val'),
+                    onChanged: onSwitchChanged ?? (val) => print('$title: $val'),
                     activeColor: colorScheme.primary,
                     materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   )

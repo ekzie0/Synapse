@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:synapse/database/database_helper.dart';
 import 'package:synapse/providers/auth_provider.dart';
 import 'package:synapse/providers/folder_provider.dart';
+import 'package:synapse/providers/sync_provider.dart';
 import 'package:synapse/providers/theme_provider.dart';
 import 'package:synapse/screens/auth_screen.dart';
 import 'package:synapse/screens/home_screen.dart';
@@ -23,21 +24,25 @@ class SynapseApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
         ChangeNotifierProvider(create: (_) => AuthProvider()),
         ChangeNotifierProvider(create: (_) => FolderProvider()),
+        ChangeNotifierProvider(create: (_) => SyncProvider()),
       ],
-      child: Consumer3<ThemeProvider, AuthProvider, FolderProvider>(
-        builder: (context, themeProvider, authProvider, folderProvider, child) {
-          final appTheme = themeProvider.currentTheme;
-          final materialThemeData = appTheme.toThemeData();
-
+      child: Consumer4<ThemeProvider, AuthProvider, FolderProvider, SyncProvider>(
+        builder: (context, theme, auth, folder, sync, child) {
+          final appTheme = theme.currentTheme;
+          if (auth.isAuthenticated && !sync.isAutoSyncRunning) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              sync.startAutoSync(context);
+            });
+          }
           return MaterialApp(
             title: 'Synapse',
             debugShowCheckedModeBanner: false,
-            theme: materialThemeData,
-            home: authProvider.isLoading
+            theme: appTheme.toThemeData(),
+            home: auth.isLoading
                 ? const Center(child: CircularProgressIndicator())
-                : (authProvider.isAuthenticated
+                : auth.isAuthenticated
                     ? const HomeScreen()
-                    : const AuthScreen()),
+                    : const AuthScreen(),
           );
         },
       ),
