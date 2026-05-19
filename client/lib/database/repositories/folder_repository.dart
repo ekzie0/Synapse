@@ -82,4 +82,16 @@ class FolderRepository {
     );
     return maps.map((map) => Folder.fromMap(map)).toList();
   }
+
+  // НОВЫЙ МЕТОД
+  Future<Folder?> getFolderById(int folderId) async {
+    final db = await _dbHelper.database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      'folders',
+      where: 'id = ?',
+      whereArgs: [folderId],
+    );
+    if (maps.isEmpty) return null;
+    return Folder.fromMap(maps.first);
+  }
 }

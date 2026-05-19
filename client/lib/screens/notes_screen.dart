@@ -1,4 +1,3 @@
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:synapse/database/models/folder_model.dart';
@@ -9,36 +8,6 @@ import 'package:synapse/screens/graph_screen.dart';
 import 'package:synapse/widgets/avatar_popup_menu.dart';
 import 'package:synapse/widgets/image_picker_widget.dart';
 import 'package:synapse/widgets/tag_picker.dart';
-
-// Кастомный контроллер для ссылок
-class LinkTextEditingController extends TextEditingController {
-  final RegExp _linkRegex = RegExp(r'\[\[(.*?)\]\]');
-  
-  List<String> getLinks() {
-    final matches = _linkRegex.allMatches(text);
-    return matches.map((m) => m.group(1)!).toList();
-  }
-  
-  bool isCursorInsideLink(int cursorPos) {
-    final matches = _linkRegex.allMatches(text);
-    for (var match in matches) {
-      if (cursorPos >= match.start && cursorPos <= match.end) {
-        return true;
-      }
-    }
-    return false;
-  }
-  
-  String? getLinkAtCursor(int cursorPos) {
-    final matches = _linkRegex.allMatches(text);
-    for (var match in matches) {
-      if (cursorPos >= match.start && cursorPos <= match.end) {
-        return match.group(1);
-      }
-    }
-    return null;
-  }
-}
 
 class NotesScreen extends StatefulWidget {
   const NotesScreen({super.key});
@@ -56,12 +25,14 @@ class _NotesScreenState extends State<NotesScreen> {
   int? _selectedNoteId;
   Folder? _selectedFolder;
   final TextEditingController _noteTitleController = TextEditingController();
-  final LinkTextEditingController _noteContentController = LinkTextEditingController();
+  final TextEditingController _noteContentController = TextEditingController();
   final TextEditingController _folderNameController = TextEditingController();
   final TextEditingController _searchController = TextEditingController();
   
   Set<int> _expandedFolders = {};
-  List<Folder> _rootFolders = [];
+  List<Folder> _folders = [];
+  List<Note> _allNotes = [];
+  List<Note> _notesInCurrentFolder = [];
   
   String _searchQuery = '';
   bool _isSearching = false;
@@ -77,395 +48,153 @@ class _NotesScreenState extends State<NotesScreen> {
     final folderProvider = Provider.of<FolderProvider>(context, listen: false);
     
     if (authProvider.isAuthenticated) {
-      await folderProvider.loadRootFolders(authProvider.currentUser!.id!);
+      await folderProvider.loadAllData(authProvider.currentUser!.id!);
       setState(() {
-        _rootFolders = folderProvider.rootFolders;
+        _folders = List.from(folderProvider.rootFolders);
+        _allNotes = List.from(folderProvider.allNotes);
+        _updateNotesInCurrentFolder();
       });
     }
+  }
+
+  void _updateNotesInCurrentFolder() {
+    if (_selectedFolder == null) {
+      _notesInCurrentFolder = _allNotes.where((n) => n.folderId == null).toList();
+    } else {
+      _notesInCurrentFolder = _allNotes.where((n) => n.folderId == _selectedFolder!.id).toList();
+    }
+    // Сортируем по дате обновления (новые сверху)
+    _notesInCurrentFolder.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    setState(() {});
   }
 
   void _openNote(Note note) {
     setState(() {
       _selectedNoteId = note.id;
-      _selectedFolder = null;
       _noteTitleController.text = note.title;
       _noteContentController.text = note.content ?? '';
     });
   }
 
-  void _selectFolder(Folder folder) {
+  void _selectFolder(Folder? folder) {
     setState(() {
-      if (_selectedFolder?.id == folder.id) {
-        _selectedFolder = null;
-      } else {
-        _selectedFolder = folder;
-        _selectedNoteId = null;
-        _noteTitleController.clear();
-        _noteContentController.clear();
-      }
-    });
-  }
-
-  void _clearSelection() {
-    setState(() {
-      _selectedFolder = null;
+      _selectedFolder = folder;
       _selectedNoteId = null;
       _noteTitleController.clear();
       _noteContentController.clear();
+      _updateNotesInCurrentFolder();
     });
   }
 
-  void _saveNote() async {
+  Future<void> _saveNote() async {
     if (_selectedNoteId == null) return;
     
+    final folderProvider = Provider.of<FolderProvider>(context, listen: false);
+    final note = _allNotes.firstWhere((n) => n.id == _selectedNoteId);
+    
+    final updatedNote = note.copyWith(
+      title: _noteTitleController.text,
+      content: _noteContentController.text,
+    );
+    await folderProvider.updateNote(updatedNote);
+    
+    // Обновляем локальные списки
+    final index = _allNotes.indexWhere((n) => n.id == _selectedNoteId);
+    if (index != -1) _allNotes[index] = updatedNote;
+    _updateNotesInCurrentFolder();
+  }
+
+  Future<void> _createNote() async {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final folderProvider = Provider.of<FolderProvider>(context, listen: false);
     
-    Note? currentNote;
+    final title = 'Новая заметка ${DateTime.now().millisecondsSinceEpoch}';
+    final success = await folderProvider.createNote(title, authProvider.currentUser!.id!, folderId: _selectedFolder?.id);
     
-    currentNote = folderProvider.rootNotes.firstWhere(
-      (n) => n.id == _selectedNoteId,
-      orElse: () => folderProvider.currentNotes.firstWhere(
-        (n) => n.id == _selectedNoteId,
-        orElse: () => Note(userId: 0, title: '', createdAt: 0, updatedAt: 0),
-      ),
-    );
-    
-    if (currentNote.id != null) {
-      final updatedNote = currentNote.copyWith(
-        title: _noteTitleController.text,
-        content: _noteContentController.text,
-      );
-      await folderProvider.updateNote(updatedNote);
-      _updateNoteInList(updatedNote);
+    if (success && mounted) {
+      await _loadData();
+      final newNote = _allNotes.lastWhere((n) => n.title == title);
+      _openNote(newNote);
     }
   }
 
-  void _onTextChanged() {
-    _saveNote();
-    final text = _noteContentController.text;
-    if (text.endsWith('[[')) {
-      _showLinkAutocomplete();
-    }
-  }
-
-  void _showLinkAutocomplete() {
-    final provider = Provider.of<FolderProvider>(context, listen: false);
-    final allNotes = [...provider.rootNotes, ...provider.currentNotes];
-    
-    if (allNotes.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Нет доступных заметок для ссылки')),
-      );
-      return;
-    }
-    
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Связать с заметкой'),
-        content: SizedBox(
-          width: double.maxFinite,
-          height: 250,
-          child: ListView.builder(
-            itemCount: allNotes.length,
-            itemBuilder: (context, i) {
-              final note = allNotes[i];
-              if (note.id == _selectedNoteId) return const SizedBox.shrink();
-              return ListTile(
-                title: Text(note.title),
-                onTap: () {
-                  final currentText = _noteContentController.text;
-                  final newText = currentText.substring(0, currentText.length - 2) +
-                      '[[${note.title}]]';
-                  _noteContentController.text = newText;
-                  _noteContentController.selection = TextSelection.collapsed(
-                    offset: newText.length,
-                  );
-                  Navigator.pop(context);
-                  _saveNote();
-                },
-              );
-            },
-          ),
-        ),
-      ),
-    );
-  }
-
-  String? _getLinkUnderCursor() {
-    final text = _noteContentController.text;
-    final selection = _noteContentController.selection;
-    if (!selection.isValid) return null;
-
-    final regExp = RegExp(r'\[\[(.*?)\]\]');
-    final matches = regExp.allMatches(text);
-
-    for (final match in matches) {
-      if (selection.start >= match.start && selection.start <= match.end) {
-        return match.group(1);
-      }
-    }
-    return null;
-  }
-
-  void _jumpToNote(String linkTitle) {
-    final provider = Provider.of<FolderProvider>(context, listen: false);
-    final allNotes = [...provider.rootNotes, ...provider.currentNotes];
-    final targetNote = allNotes.firstWhere(
-      (n) => n.title == linkTitle,
-      orElse: () => Note(userId: 0, title: '', createdAt: 0, updatedAt: 0),
-    );
-    if (targetNote.id != null) {
-      _openNote(targetNote);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Открыта заметка: ${targetNote.title}')),
-      );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Заметка "$linkTitle" не найдена'), backgroundColor: Colors.red),
-      );
-    }
-  }
-
-  List<String> _getAllTags() {
-    final folderProvider = Provider.of<FolderProvider>(context, listen: false);
-    final allNotes = [...folderProvider.rootNotes, ...folderProvider.currentNotes];
-    final Set<String> tags = {};
-    for (var note in allNotes) {
-      if (note.tags != null) {
-        tags.addAll(note.tags!);
-      }
-    }
-    return tags.toList();
-  }
-
-  void _updateNoteInList(Note updatedNote) {
+  Future<void> _createFolder() async {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final folderProvider = Provider.of<FolderProvider>(context, listen: false);
     
-    final rootIndex = folderProvider.rootNotes.indexWhere((n) => n.id == updatedNote.id);
-    if (rootIndex != -1) {
-      folderProvider.rootNotes[rootIndex] = updatedNote;
-    }
-    final currentIndex = folderProvider.currentNotes.indexWhere((n) => n.id == updatedNote.id);
-    if (currentIndex != -1) {
-      folderProvider.currentNotes[currentIndex] = updatedNote;
-    }
-    setState(() {});
-  }
-
-  void _showCreateFolderDialog({int? parentFolderId}) {
     _folderNameController.clear();
-    
-    showDialog(
+    final name = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Создать папку'),
         content: TextField(
           controller: _folderNameController,
           autofocus: true,
-          decoration: const InputDecoration(
-            hintText: 'Название папки',
-          ),
+          decoration: const InputDecoration(hintText: 'Название папки'),
         ),
         actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Отмена')),
           TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Отмена'),
-          ),
-          TextButton(
-            onPressed: () async {
-              final name = _folderNameController.text.trim();
-              if (name.isNotEmpty) {
-                final authProvider = Provider.of<AuthProvider>(context, listen: false);
-                final folderProvider = Provider.of<FolderProvider>(context, listen: false);
-                await folderProvider.createFolder(name, authProvider.currentUser!.id!, parentFolderId: parentFolderId);
-                if (mounted) {
-                  Navigator.pop(context);
-                  _refreshAfterAction();
-                }
-              }
-            },
+            onPressed: () => Navigator.pop(context, _folderNameController.text.trim()),
             child: const Text('Создать'),
           ),
         ],
       ),
     );
-  }
-
-  void _showCreateNoteDialog({int? folderId}) {
-    final titleController = TextEditingController();
     
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Создать заметку'),
-        content: TextField(
-          controller: titleController,
-          autofocus: true,
-          decoration: const InputDecoration(
-            hintText: 'Заголовок заметки',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Отмена'),
-          ),
-          TextButton(
-            onPressed: () async {
-              final title = titleController.text.trim();
-              if (title.isNotEmpty) {
-                final authProvider = Provider.of<AuthProvider>(context, listen: false);
-                final folderProvider = Provider.of<FolderProvider>(context, listen: false);
-                final targetFolderId = folderId ?? _selectedFolder?.id;
-                
-                final success = await folderProvider.createNote(
-                  title, 
-                  authProvider.currentUser!.id!, 
-                  folderId: targetFolderId,
-                );
-                
-                if (success && mounted) {
-                  Navigator.pop(context);
-                  _refreshAfterAction();
-                } else if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Ошибка создания заметки')),
-                  );
-                }
-              }
-            },
-            child: const Text('Создать'),
-          ),
-        ],
-      ),
-    );
+    if (name != null && name.isNotEmpty) {
+      await folderProvider.createFolder(name, authProvider.currentUser!.id!, parentFolderId: _selectedFolder?.id);
+      await _loadData();
+      setState(() {});
+    }
   }
 
-  void _refreshAfterAction() {
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+  Future<void> _deleteNote(Note note) async {
     final folderProvider = Provider.of<FolderProvider>(context, listen: false);
-    folderProvider.loadRootFolders(authProvider.currentUser!.id!).then((_) {
-      if (mounted) {
-        setState(() {
-          _rootFolders = folderProvider.rootFolders;
-        });
-      }
-    });
-  }
-
-  void _showDeleteConfirmDialog(String type, String name, VoidCallback onDelete) {
-    showDialog(
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    
+    final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Удалить $type'),
-        content: Text('Вы уверены, что хотите удалить "$name"?'),
+        title: const Text('Удалить заметку'),
+        content: Text('Удалить "${note.title}"?'),
         actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Отмена')),
           TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Отмена'),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              onDelete();
-              _refreshAfterAction();
-            },
+            onPressed: () => Navigator.pop(context, true),
             style: TextButton.styleFrom(foregroundColor: Colors.red),
             child: const Text('Удалить'),
           ),
         ],
       ),
     );
-  }
-
-  void _toggleFolder(Folder folder, int userId) async {
-    if (!_expandedFolders.contains(folder.id)) {
-      final folderProvider = Provider.of<FolderProvider>(context, listen: false);
-      final subfolders = await folderProvider.getSubfolders(folder.id!, userId);
-      
-      setState(() {
-        _updateFolderInTree(_rootFolders, folder.id!, subfolders);
-        _expandedFolders.add(folder.id!);
-      });
-    } else {
-      setState(() {
-        _expandedFolders.remove(folder.id);
-      });
-    }
-  }
-
-  void _updateFolderInTree(List<Folder> folders, int folderId, List<Folder> subfolders) {
-    for (var i = 0; i < folders.length; i++) {
-      if (folders[i].id == folderId) {
-        folders[i] = folders[i].copyWith(subfolders: subfolders);
-        return;
-      }
-      if (folders[i].subfolders != null && folders[i].subfolders!.isNotEmpty) {
-        _updateFolderInTree(folders[i].subfolders!, folderId, subfolders);
+    
+    if (confirm == true) {
+      await folderProvider.deleteNote(note.id!, authProvider.currentUser!.id!);
+      await _loadData();
+      if (_selectedNoteId == note.id) {
+        setState(() {
+          _selectedNoteId = null;
+          _noteTitleController.clear();
+          _noteContentController.clear();
+        });
       }
     }
   }
 
-  Future<void> _moveNoteToFolder(Note note, Folder targetFolder) async {
-    final folderProvider = Provider.of<FolderProvider>(context, listen: false);
-    
-    final updatedNote = note.copyWith(folderId: targetFolder.id);
-    final success = await folderProvider.updateNote(updatedNote);
-    
-    if (success && mounted) {
-      _refreshAfterAction();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Заметка "${note.title}" перемещена в "${targetFolder.name}"')),
-        );
+  List<Note> _getFilteredNotes() {
+    if (_searchQuery.isEmpty) return _notesInCurrentFolder;
+    final query = _searchQuery.toLowerCase();
+    return _notesInCurrentFolder.where((note) {
+      if (note.title.toLowerCase().contains(query)) return true;
+      if (note.content != null && note.content!.toLowerCase().contains(query)) return true;
+      if (note.tags != null) {
+        for (var tag in note.tags!) {
+          if (tag.toLowerCase().contains(query)) return true;
+        }
       }
-    } else if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Ошибка перемещения заметки'), backgroundColor: Colors.red),
-      );
-    }
-  }
-
-  void _renameNote(Note note) {
-    final TextEditingController renameController = TextEditingController(text: note.title);
-    
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Переименовать заметку'),
-        content: TextField(
-          controller: renameController,
-          autofocus: true,
-          decoration: const InputDecoration(
-            hintText: 'Новое название',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Отмена'),
-          ),
-          TextButton(
-            onPressed: () async {
-              final newTitle = renameController.text.trim();
-              if (newTitle.isNotEmpty && newTitle != note.title) {
-                final updatedNote = note.copyWith(title: newTitle);
-                final folderProvider = Provider.of<FolderProvider>(context, listen: false);
-                await folderProvider.updateNote(updatedNote);
-                _updateNoteInList(updatedNote);
-                if (_selectedNoteId == note.id) {
-                  _noteTitleController.text = newTitle;
-                }
-              }
-              if (mounted) Navigator.pop(context);
-            },
-            child: const Text('Сохранить'),
-          ),
-        ],
-      ),
-    );
+      return false;
+    }).toList();
   }
 
   @override
@@ -473,763 +202,291 @@ class _NotesScreenState extends State<NotesScreen> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final isDesktop = MediaQuery.of(context).size.width > 800;
+    final filteredNotes = _getFilteredNotes();
     
-    return Consumer2<AuthProvider, FolderProvider>(
-      builder: (context, authProvider, folderProvider, child) {
-        final user = authProvider.currentUser;
-        
-        if (user == null) {
-          return const Scaffold(
-            body: Center(child: Text('Ошибка: пользователь не найден')),
-          );
-        }
-        
-        return Scaffold(
-          backgroundColor: theme.scaffoldBackgroundColor,
-          body: SafeArea(
-            child: Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 2),
-                  child: Row(
-                    children: [
-                      IconButton(
-                        onPressed: () => Navigator.pop(context),
-                        icon: const Icon(Icons.arrow_back),
-                        color: colorScheme.primary,
+    return Scaffold(
+      backgroundColor: theme.scaffoldBackgroundColor,
+      body: SafeArea(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 2),
+              child: Row(
+                children: [
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.arrow_back),
+                    color: colorScheme.primary,
+                  ),
+                  Expanded(
+                    child: Text(
+                      _selectedFolder?.name ?? 'Заметки',
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.headlineMedium?.copyWith(
+                        color: colorScheme.brightness == Brightness.dark
+                            ? const Color.fromARGB(255, 70, 70, 70)
+                            : Colors.grey[800],
                       ),
-                      Expanded(
-                        child: Text(
-                          'Заметки',
-                          textAlign: TextAlign.center,
-                          style: theme.textTheme.headlineMedium?.copyWith(
-                            color: colorScheme.brightness == Brightness.dark
-                                ? const Color.fromARGB(255, 70, 70, 70)
-                                : Colors.grey[800],
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const GraphScreen())),
+                    icon: const Icon(Icons.bubble_chart_outlined),
+                    color: colorScheme.primary,
+                  ),
+                  const AvatarPopupMenu(),
+                ],
+              ),
+            ),
+            
+            const SizedBox(height: 10),
+            
+            Expanded(
+              child: isDesktop
+                  ? Row(
+                      children: [
+                        SizedBox(
+                          width: _leftPanelWidth,
+                          child: _buildLeftPanel(context, colorScheme, filteredNotes),
+                        ),
+                        GestureDetector(
+                          onHorizontalDragUpdate: (details) {
+                            setState(() {
+                              double newWidth = _leftPanelWidth + details.delta.dx;
+                              if (newWidth >= _minPanelWidth && newWidth <= _maxPanelWidth) {
+                                _leftPanelWidth = newWidth;
+                              }
+                            });
+                          },
+                          child: Container(
+                            width: 4,
+                            color: _isResizing ? colorScheme.primary : Colors.transparent,
                           ),
                         ),
-                      ),
-                      IconButton(
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            CupertinoPageRoute(builder: (context) => const GraphScreen()),
-                          );
-                        },
-                        icon: const Icon(Icons.bubble_chart_outlined),
-                        color: colorScheme.primary,
-                      ),
-                      const AvatarPopupMenu(),
-                    ],
-                  ),
-                ),
-                
-                const SizedBox(height: 10),
-                
-                Expanded(
-                  child: isDesktop
-                      ? MouseRegion(
-                          cursor: _isResizing ? SystemMouseCursors.resizeColumn : MouseCursor.defer,
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              SizedBox(
-                                width: _leftPanelWidth,
-                                child: Padding(
-                                  padding: const EdgeInsets.only(left: 12, right: 8),
-                                  child: _buildTreeView(context, folderProvider, user.id!),
-                                ),
-                              ),
-                              GestureDetector(
-                                onHorizontalDragStart: (_) => setState(() => _isResizing = true),
-                                onHorizontalDragUpdate: (details) {
-                                  setState(() {
-                                    double newWidth = _leftPanelWidth + details.delta.dx;
-                                    if (newWidth >= _minPanelWidth && newWidth <= _maxPanelWidth) {
-                                      _leftPanelWidth = newWidth;
-                                    }
-                                  });
-                                },
-                                onHorizontalDragEnd: (_) => setState(() => _isResizing = false),
-                                child: Container(
-                                  width: 4,
-                                  margin: const EdgeInsets.symmetric(horizontal: 2),
-                                  height: double.infinity,
-                                  decoration: BoxDecoration(
-                                    color: _isResizing ? colorScheme.primary : Colors.transparent,
-                                    borderRadius: BorderRadius.circular(2),
-                                  ),
-                                  child: MouseRegion(
-                                    cursor: SystemMouseCursors.resizeColumn,
-                                    child: Container(color: Colors.transparent),
-                                  ),
-                                ),
-                              ),
-                              Expanded(
-                                child: Padding(
-                                  padding: const EdgeInsets.fromLTRB(16, 0, 20, 0),
-                                  child: _buildNoteEditor(context, folderProvider),
-                                ),
-                              ),
-                            ],
-                          ),
-                        )
-                      : _buildMobileView(context, folderProvider),
-                ),
-              ],
+                        Expanded(child: _buildRightPanel(context)),
+                      ],
+                    )
+                  : const Center(child: Text('Мобильная версия в разработке')),
             ),
-          ),
-        );
-      },
+          ],
+        ),
+      ),
     );
   }
 
-  Widget _buildTreeView(BuildContext context, FolderProvider provider, int userId) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    
-    List<Note> notesToShow;
-    
-    if (_searchQuery.trim().isEmpty) {
-      if (provider.isInRoot) {
-        notesToShow = provider.rootNotes;
-      } else {
-        notesToShow = provider.currentNotes;
-      }
-    } else {
-      final allNotes = [...provider.rootNotes, ...provider.currentNotes];
-      final lowerQuery = _searchQuery.toLowerCase();
-      notesToShow = allNotes.where((note) {
-        if (note.title.toLowerCase().contains(lowerQuery)) return true;
-        if (note.content != null && note.content!.toLowerCase().contains(lowerQuery)) return true;
-        if (note.tags != null) {
-          for (var tag in note.tags!) {
-            if (tag.toLowerCase().contains(lowerQuery)) return true;
-          }
-        }
-        return false;
-      }).toList();
-    }
-    
-    return GestureDetector(
-      onTap: _clearSelection,
-      behavior: HitTestBehavior.opaque,
-      child: Column(
-        children: [
-          Row(
+  Widget _buildLeftPanel(BuildContext context, ColorScheme colorScheme, List<Note> filteredNotes) {
+    return Column(
+      children: [
+        // Кнопки
+        Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
             children: [
               Expanded(
-                child: OutlinedButton(
-                  onPressed: () => _showCreateFolderDialog(parentFolderId: _selectedFolder?.id),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    side: BorderSide(color: colorScheme.primary.withOpacity(0.3)),
-                    minimumSize: const Size(0, 36),
-                  ),
-                  child: const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.folder_outlined, size: 16),
-                      SizedBox(width: 6),
-                      Text('Папка', style: TextStyle(fontSize: 13)),
-                    ],
-                  ),
+                child: OutlinedButton.icon(
+                  onPressed: _createFolder,
+                  icon: const Icon(Icons.folder_outlined, size: 16),
+                  label: const Text('Папка'),
                 ),
               ),
               const SizedBox(width: 8),
               Expanded(
-                child: ElevatedButton(
-                  onPressed: () => _showCreateNoteDialog(folderId: _selectedFolder?.id),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: colorScheme.primary,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    minimumSize: const Size(0, 36),
-                  ),
-                  child: const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.note_add, size: 16),
-                      SizedBox(width: 6),
-                      Text('Заметка', style: TextStyle(fontSize: 13)),
-                    ],
-                  ),
+                child: ElevatedButton.icon(
+                  onPressed: _createNote,
+                  icon: const Icon(Icons.note_add, size: 16),
+                  label: const Text('Заметка'),
                 ),
               ),
             ],
           ),
-          
-          const SizedBox(height: 12),
-          
-          Container(
-            margin: const EdgeInsets.only(bottom: 12),
-            child: TextField(
-              controller: _searchController,
-              onChanged: (value) {
-                setState(() {
-                  _searchQuery = value;
-                  _isSearching = value.isNotEmpty;
-                });
-              },
-              decoration: InputDecoration(
-                hintText: 'Поиск...',
-                prefixIcon: const Icon(Icons.search, size: 18),
-                suffixIcon: _searchQuery.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear, size: 16),
-                        onPressed: () {
-                          setState(() {
-                            _searchController.clear();
-                            _searchQuery = '';
-                            _isSearching = false;
-                          });
-                        },
-                      )
-                    : null,
-                isDense: true,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: BorderSide.none,
-                ),
-                filled: true,
-                fillColor: colorScheme.surface,
+        ),
+        
+        // Навигация
+        if (_selectedFolder != null)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: () => _selectFolder(null),
+                icon: const Icon(Icons.arrow_back, size: 16),
+                label: const Text('Назад'),
               ),
             ),
           ),
-          
-          Expanded(
-            child: ListView(
-              padding: EdgeInsets.zero,
-              children: [
-                ..._buildFolderTree(_rootFolders, provider, userId, 0),
-                
-                if (notesToShow.isNotEmpty) ...[
-                  const SizedBox(height: 4),
-                  ...notesToShow.map((note) => _buildNoteTile(context, note, provider, userId, null)),
-                ],
-                
-                if (_rootFolders.isEmpty && notesToShow.isEmpty && !_isSearching)
-                  Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(32),
-                      child: Column(
-                        children: [
-                          Icon(
-                            Icons.folder_open_outlined,
-                            size: 40,
-                            color: Colors.grey[600],
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Пусто',
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: Colors.grey[500],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                
-                if (_isSearching && notesToShow.isEmpty)
-                  Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(32),
-                      child: Column(
-                        children: [
-                          Icon(
-                            Icons.search_off,
-                            size: 40,
-                            color: Colors.grey[600],
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Ничего не найдено',
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: Colors.grey[500],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-              ],
+        
+        // Поиск
+        Padding(
+          padding: const EdgeInsets.all(12),
+          child: TextField(
+            controller: _searchController,
+            onChanged: (value) => setState(() {
+              _searchQuery = value;
+              _isSearching = value.isNotEmpty;
+            }),
+            decoration: InputDecoration(
+              hintText: 'Поиск...',
+              prefixIcon: const Icon(Icons.search, size: 18),
+              suffixIcon: _searchQuery.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.clear, size: 16),
+                      onPressed: () {
+                        _searchController.clear();
+                        setState(() {
+                          _searchQuery = '';
+                          _isSearching = false;
+                        });
+                      },
+                    )
+                  : null,
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+              filled: true,
+              fillColor: colorScheme.surface,
             ),
+          ),
+        ),
+        
+        // Список папок
+        Expanded(
+          child: ListView(
+            children: [
+              ..._folders.map((folder) => _buildFolderTile(folder, colorScheme)),
+              if (filteredNotes.isNotEmpty) ...[
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  child: Divider(),
+                ),
+                ...filteredNotes.map((note) => _buildNoteTile(note, colorScheme)),
+              ],
+              if (_folders.isEmpty && filteredNotes.isEmpty)
+                const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(32),
+                    child: Text('Пусто'),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFolderTile(Folder folder, ColorScheme colorScheme) {
+    final isSelected = _selectedFolder?.id == folder.id;
+    return ListTile(
+      leading: Icon(Icons.folder_outlined, color: colorScheme.primary),
+      title: Text(folder.name),
+      tileColor: isSelected ? colorScheme.primary.withOpacity(0.1) : null,
+      onTap: () => _selectFolder(folder),
+      trailing: IconButton(
+        icon: const Icon(Icons.delete_outline, size: 18),
+        onPressed: () => _deleteFolder(folder),
+      ),
+    );
+  }
+
+  Widget _buildNoteTile(Note note, ColorScheme colorScheme) {
+    final isSelected = _selectedNoteId == note.id;
+    return ListTile(
+      leading: Icon(Icons.description_outlined, size: 20),
+      title: Text(
+        note.title,
+        style: TextStyle(
+          fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+          color: isSelected ? colorScheme.primary : null,
+        ),
+      ),
+      tileColor: isSelected ? colorScheme.primary.withOpacity(0.08) : null,
+      onTap: () => _openNote(note),
+      trailing: IconButton(
+        icon: const Icon(Icons.delete_outline, size: 18),
+        onPressed: () => _deleteNote(note),
+      ),
+    );
+  }
+
+  Future<void> _deleteFolder(Folder folder) async {
+    final folderProvider = Provider.of<FolderProvider>(context, listen: false);
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Удалить папку'),
+        content: Text('Удалить папку "${folder.name}" со всеми заметками?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Отмена')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Удалить'),
           ),
         ],
       ),
     );
+    
+    if (confirm == true) {
+      await folderProvider.deleteFolder(folder, authProvider.currentUser!.id!);
+      await _loadData();
+      if (_selectedFolder?.id == folder.id) _selectFolder(null);
+    }
   }
 
-  List<Widget> _buildFolderTree(List<Folder> folders, FolderProvider provider, int userId, int depth) {
-    List<Widget> widgets = [];
-    
-    final allNotes = [...provider.rootNotes, ...provider.currentNotes];
-    
-    for (var folder in folders) {
-      final isExpanded = _expandedFolders.contains(folder.id);
-      final isSelected = _selectedFolder?.id == folder.id;
-      final folderNotes = allNotes.where((n) => n.folderId == folder.id).toList();
-      
-      widgets.add(
-        _buildFolderTile(
-          context, 
-          folder, 
-          provider, 
-          userId, 
-          depth, 
-          isExpanded,
-          isSelected,
-          folderNotes.isNotEmpty,
-          () => _toggleFolder(folder, userId),
-          () => _selectFolder(folder),
-        ),
-      );
-      
-      if (isExpanded && folder.subfolders != null && folder.subfolders!.isNotEmpty) {
-        widgets.addAll(_buildFolderTree(folder.subfolders!, provider, userId, depth + 1));
-        
-        if (folderNotes.isNotEmpty) {
-          widgets.add(
-            Padding(
-              padding: EdgeInsets.only(left: (depth + 1) * 16.0 + 24),
-              child: Column(
-                children: folderNotes.map((note) => _buildNoteTile(context, note, provider, userId, folder)).toList(),
-              ),
-            ),
-          );
-        }
-      }
+  Widget _buildRightPanel(BuildContext context) {
+    if (_selectedNoteId == null) {
+      return const Center(child: Text('Выберите заметку'));
     }
     
-    return widgets;
-  }
-
-  Widget _buildFolderTile(
-    BuildContext context,
-    Folder folder,
-    FolderProvider provider,
-    int userId,
-    int depth,
-    bool isExpanded,
-    bool isSelected,
-    bool hasNotes,
-    VoidCallback onToggle,
-    VoidCallback onSelect,
-  ) {
-    final colorScheme = Theme.of(context).colorScheme;
-    
-    return DragTarget<Note>(
-      onAccept: (note) {
-        _moveNoteToFolder(note, folder);
-      },
-      builder: (context, candidateData, rejectedData) {
-        return GestureDetector(
-          onTap: () {
-            onSelect();
-            provider.openFolder(folder, userId);
-          },
-          onSecondaryTapDown: (details) {
-            _showFolderContextMenu(details.globalPosition, folder);
-          },
-          child: Container(
-            margin: const EdgeInsets.symmetric(vertical: 1),
-            decoration: BoxDecoration(
-              color: isSelected ? colorScheme.primary.withOpacity(0.1) : Colors.transparent,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                SizedBox(width: depth * 16.0),
-                Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-                    child: Row(
-                      children: [
-                        GestureDetector(
-                          onTap: onToggle,
-                          child: Icon(
-                            isExpanded ? Icons.keyboard_arrow_down : Icons.keyboard_arrow_right,
-                            size: 18,
-                            color: colorScheme.primary,
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Icon(Icons.folder_outlined, size: 18, color: colorScheme.primary),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            folder.name,
-                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.delete_outline, size: 16),
-                          constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
-                          padding: EdgeInsets.zero,
-                          onPressed: () {
-                            _showDeleteConfirmDialog('папку', folder.name, () async {
-                              await provider.deleteFolder(folder, userId);
-                            });
-                          },
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildNoteTile(BuildContext context, Note note, FolderProvider provider, int userId, Folder? parentFolder) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final isSelected = _selectedNoteId == note.id;
-    
-    return Draggable<Note>(
-      data: note,
-      feedback: Material(
-        color: Colors.transparent,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          decoration: BoxDecoration(
-            color: colorScheme.primary,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Text(
-            note.title,
-            style: const TextStyle(fontSize: 13, color: Colors.white),
-          ),
-        ),
-      ),
-      childWhenDragging: Opacity(
-        opacity: 0.3,
-        child: _buildNoteTileContent(context, note, colorScheme, isSelected, provider, userId, parentFolder),
-      ),
-      child: _buildNoteTileContent(context, note, colorScheme, isSelected, provider, userId, parentFolder),
-    );
-  }
-
-  Widget _buildNoteTileContent(
-    BuildContext context,
-    Note note,
-    ColorScheme colorScheme,
-    bool isSelected,
-    FolderProvider provider,
-    int userId,
-    Folder? parentFolder,
-  ) {
-    return GestureDetector(
-      onTap: () => _openNote(note),
-      onSecondaryTapDown: (details) {
-        _showNoteContextMenu(details.globalPosition, note, parentFolder);
-      },
-      child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 1),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-          margin: EdgeInsets.only(left: parentFolder != null ? 24 : 24),
-          decoration: BoxDecoration(
-            color: isSelected ? colorScheme.primary.withOpacity(0.1) : Colors.transparent,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Icon(Icons.description_outlined, size: 14, color: colorScheme.primary),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      note.title,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: isSelected ? FontWeight.w500 : FontWeight.normal,
-                        color: isSelected ? colorScheme.primary : null,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.delete_outline, size: 14),
-                    constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
-                    padding: EdgeInsets.zero,
-                    onPressed: () {
-                      _showDeleteConfirmDialog('заметку', note.title, () async {
-                        await provider.deleteNote(note.id!, userId);
-                        if (_selectedNoteId == note.id) {
-                          setState(() {
-                            _selectedNoteId = null;
-                            _noteTitleController.clear();
-                            _noteContentController.clear();
-                          });
-                        }
-                      });
-                    },
-                  ),
-                ],
-              ),
-              if (note.tags != null && note.tags!.isNotEmpty) ...[
-                const SizedBox(height: 4),
-                Wrap(
-                  spacing: 4,
-                  children: note.tags!.map((tag) => Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: colorScheme.primary.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Text(
-                      tag,
-                      style: TextStyle(fontSize: 9, color: colorScheme.primary),
-                    ),
-                  )).toList(),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _showFolderContextMenu(Offset position, Folder folder) {
-    showMenu(
-      context: context,
-      position: RelativeRect.fromLTRB(position.dx, position.dy, position.dx, position.dy),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      items: [
-        PopupMenuItem(
-          child: const Row(
-            children: [
-              Icon(Icons.folder_outlined, size: 18),
-              SizedBox(width: 12),
-              Text('Создать папку'),
-            ],
-          ),
-          onTap: () {
-            _showCreateFolderDialog(parentFolderId: folder.id);
-          },
-        ),
-        PopupMenuItem(
-          child: const Row(
-            children: [
-              Icon(Icons.note_add, size: 18),
-              SizedBox(width: 12),
-              Text('Создать заметку'),
-            ],
-          ),
-          onTap: () {
-            _showCreateNoteDialog(folderId: folder.id);
-          },
-        ),
-      ],
-    );
-  }
-
-  void _showNoteContextMenu(Offset position, Note note, Folder? parentFolder) {
-    showMenu(
-      context: context,
-      position: RelativeRect.fromLTRB(position.dx, position.dy, position.dx, position.dy),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      items: [
-        PopupMenuItem(
-          child: const Row(
-            children: [
-              Icon(Icons.edit, size: 18),
-              SizedBox(width: 12),
-              Text('Редактировать'),
-            ],
-          ),
-          onTap: () => _openNote(note),
-        ),
-        PopupMenuItem(
-          child: const Row(
-            children: [
-              Icon(Icons.drive_file_rename_outline, size: 18),
-              SizedBox(width: 12),
-              Text('Переименовать'),
-            ],
-          ),
-          onTap: () => _renameNote(note),
-        ),
-        PopupMenuItem(
-          child: const Row(
-            children: [
-              Icon(Icons.delete, size: 18, color: Colors.red),
-              SizedBox(width: 12),
-              Text('Удалить', style: TextStyle(color: Colors.red)),
-            ],
-          ),
-          onTap: () {
-            final authProvider = Provider.of<AuthProvider>(context, listen: false);
-            final folderProvider = Provider.of<FolderProvider>(context, listen: false);
-            _showDeleteConfirmDialog('заметку', note.title, () async {
-              await folderProvider.deleteNote(note.id!, authProvider.currentUser!.id!);
-              if (_selectedNoteId == note.id) {
-                setState(() {
-                  _selectedNoteId = null;
-                  _noteTitleController.clear();
-                  _noteContentController.clear();
-                });
-              }
-            });
-          },
-        ),
-      ],
-    );
-  }
-
-  Widget _buildNoteEditor(BuildContext context, FolderProvider provider) {
-    final theme = Theme.of(context);
-    
-    Note? selectedNote;
-    
-    selectedNote = provider.rootNotes.firstWhere(
-      (n) => n.id == _selectedNoteId,
-      orElse: () => provider.currentNotes.firstWhere(
-        (n) => n.id == _selectedNoteId,
-        orElse: () => Note(userId: 0, title: '', createdAt: 0, updatedAt: 0),
-      ),
-    );
-    
-    if (_selectedNoteId == null || selectedNote.id == null) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.note_outlined,
-              size: 48,
-              color: Colors.grey[600],
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Выберите заметку',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: Colors.grey[500],
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-    
-    final currentNote = selectedNote;
+    final note = _allNotes.firstWhere((n) => n.id == _selectedNoteId);
     
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        TextField(
-          controller: _noteTitleController,
-          style: theme.textTheme.titleLarge?.copyWith(
-            fontSize: 22,
-            fontWeight: FontWeight.w600,
-          ),
-          decoration: const InputDecoration(
-            hintText: 'Заголовок',
-            border: InputBorder.none,
-            contentPadding: EdgeInsets.zero,
-          ),
-          onChanged: (_) => _saveNote(),
-        ),
-        
-        const SizedBox(height: 16),
-        
-        TagPicker(
-          selectedTags: currentNote.tags ?? [],
-          onTagsChanged: (tags) {
-            if (currentNote.id != null) {
-              final updatedNote = currentNote.copyWith(tags: tags);
-              provider.updateNote(updatedNote);
-              _updateNoteInList(updatedNote);
-            }
-          },
-          availableTags: _getAllTags(),
-        ),
-        
-        const SizedBox(height: 16),
-        
-        ImagePickerWidget(
-          imagePaths: currentNote.images ?? [],
-          onImagesChanged: (images) {
-            if (currentNote.id != null) {
-              final updatedNote = currentNote.copyWith(images: images);
-              provider.updateNote(updatedNote);
-              _updateNoteInList(updatedNote);
-            }
-          },
-          noteId: currentNote.id!,
-        ),
-        
-        const SizedBox(height: 16),
-        
-        Container(
-          height: 1,
-          color: theme.colorScheme.brightness == Brightness.dark
-              ? Colors.white.withOpacity(0.05)
-              : Colors.black.withOpacity(0.05),
-        ),
-        
-        const SizedBox(height: 16),
-        
-        ValueListenableBuilder(
-          valueListenable: _noteContentController,
-          builder: (context, value, child) {
-            final linkTitle = _getLinkUnderCursor();
-            if (linkTitle == null) return const SizedBox.shrink();
-            
-            return Container(
-              margin: const EdgeInsets.only(bottom: 8),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: ListTile(
-                leading: Icon(Icons.link, color: Theme.of(context).colorScheme.primary),
-                title: Text(
-                  "Перейти к: $linkTitle",
-                  style: TextStyle(color: Theme.of(context).colorScheme.primary),
-                ),
-                trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                onTap: () => _jumpToNote(linkTitle),
-              ),
-            );
-          },
-        ),
-        
         Expanded(
-          child: TextField(
-            controller: _noteContentController,
-            style: theme.textTheme.bodyLarge,
-            maxLines: null,
-            expands: true,
-            decoration: const InputDecoration(
-              hintText: 'Начните писать... Используйте [[ для вставки ссылки',
-              border: InputBorder.none,
-              contentPadding: EdgeInsets.zero,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              children: [
+                TextField(
+                  controller: _noteTitleController,
+                  style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                  decoration: const InputDecoration(hintText: 'Заголовок', border: InputBorder.none),
+                  onChanged: (_) => _saveNote(),
+                ),
+                const SizedBox(height: 16),
+                TagPicker(
+                  selectedTags: note.tags ?? [],
+                  onTagsChanged: (tags) {
+                    final updatedNote = note.copyWith(tags: tags);
+                    Provider.of<FolderProvider>(context, listen: false).updateNote(updatedNote);
+                    _loadData();
+                  },
+                  availableTags: [],
+                ),
+                const SizedBox(height: 16),
+                ImagePickerWidget(
+                  imagePaths: note.images ?? [],
+                  onImagesChanged: (images) {
+                    final updatedNote = note.copyWith(images: images);
+                    Provider.of<FolderProvider>(context, listen: false).updateNote(updatedNote);
+                    _loadData();
+                  },
+                  noteId: note.id!,
+                ),
+                const SizedBox(height: 16),
+                const Divider(),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: _noteContentController,
+                  maxLines: 20,
+                  decoration: const InputDecoration(hintText: 'Содержимое...', border: InputBorder.none),
+                  onChanged: (_) => _saveNote(),
+                ),
+              ],
             ),
-            onChanged: (value) {
-              _onTextChanged();
-            },
           ),
         ),
       ],
-    );
-  }
-
-  Widget _buildMobileView(BuildContext context, FolderProvider provider) {
-    return const Center(
-      child: Text('Мобильная версия в разработке'),
     );
   }
 }

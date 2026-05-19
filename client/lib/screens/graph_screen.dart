@@ -15,52 +15,86 @@ class GraphScreen extends StatefulWidget {
 }
 
 class _GraphScreenState extends State<GraphScreen> {
-  final LinkRepository _linkRepo = LinkRepository();
-  Map<int, List<int>> _graphData = {};
-  List<Note> _allNotes = [];
+  List<Note> _notes = [];
+  Map<int, List<int>> _links = {};
+  Map<int, Offset> _nodePositions = {};
   bool _isLoading = true;
+  
+  // Для перетаскивания узлов
+  int? _draggedNodeId;
+  Offset _dragStartPosition = Offset.zero;
+  Offset _nodeStartPosition = Offset.zero;
+  
+  // Для InteractiveViewer
+  final TransformationController _transformationController = TransformationController();
+  bool _isDraggingNode = false;
 
   @override
   void initState() {
     super.initState();
-    _loadGraphData();
+    _loadData();
   }
 
-  Future<void> _loadGraphData() async {
-    setState(() {
-      _isLoading = true;
-    });
-    
+  Future<void> _loadData() async {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final folderProvider = Provider.of<FolderProvider>(context, listen: false);
+    final linkRepo = LinkRepository();
     
     final userId = authProvider.currentUser!.id!;
     
-    // Собираем все заметки (корневые + текущие)
-    final allNotes = <Note>[];
-    allNotes.addAll(folderProvider.rootNotes);
-    allNotes.addAll(folderProvider.currentNotes);
-    
-    // Убираем дубликаты по id
-    final uniqueNotes = <int, Note>{};
-    for (var note in allNotes) {
-      uniqueNotes[note.id!] = note;
-    }
+    await folderProvider.loadAllData(userId);
     
     setState(() {
-      _allNotes = uniqueNotes.values.toList();
-    });
-    
-    _graphData = await _linkRepo.getGraphData(userId);
-    
-    setState(() {
+      _notes = List.from(folderProvider.allNotes);
+      _initNodePositions();
       _isLoading = false;
     });
+    
+    _links = await linkRepo.getGraphData(userId);
+    setState(() {});
   }
 
-  void _openNote(Note note) {
+  void _initNodePositions() {
+    if (_notes.isEmpty) return;
+    
+    final center = Offset(400, 300);
+    final radius = 250.0;
+    
+    for (int i = 0; i < _notes.length; i++) {
+      final angle = (2 * pi * i) / _notes.length;
+      final x = center.dx + radius * cos(angle);
+      final y = center.dy + radius * sin(angle);
+      _nodePositions[_notes[i].id!] = Offset(x, y);
+    }
+    
+    // Разводим узлы
+    for (int iter = 0; iter < 20; iter++) {
+      bool moved = false;
+      for (int i = 0; i < _notes.length; i++) {
+        for (int j = i + 1; j < _notes.length; j++) {
+          final id1 = _notes[i].id!;
+          final id2 = _notes[j].id!;
+          final pos1 = _nodePositions[id1]!;
+          final pos2 = _nodePositions[id2]!;
+          final distance = (pos1 - pos2).distance;
+          
+          if (distance < 60) {
+            final diff = pos1 - pos2;
+            final angle = atan2(diff.dy, diff.dx);
+            const push = 10.0;
+            _nodePositions[id1] = pos1 + Offset(cos(angle) * push, sin(angle) * push);
+            _nodePositions[id2] = pos2 - Offset(cos(angle) * push, sin(angle) * push);
+            moved = true;
+          }
+        }
+      }
+      if (!moved) break;
+    }
+  }
+
+  void _onNodeTap(int noteId) {
+    final note = _notes.firstWhere((n) => n.id == noteId);
     Navigator.pop(context);
-    // TODO: открыть заметку в редакторе
   }
 
   @override
@@ -84,76 +118,73 @@ class _GraphScreenState extends State<GraphScreen> {
                   ),
                   Expanded(
                     child: Text(
-                      'Граф связей',
+                      'Граф связей (колесо - зум, перетащите узел)',
                       textAlign: TextAlign.center,
-                      style: theme.textTheme.headlineMedium?.copyWith(
-                        color: colorScheme.brightness == Brightness.dark
-                            ? const Color.fromARGB(255, 70, 70, 70)
-                            : Colors.grey[800],
-                      ),
+                      style: theme.textTheme.headlineMedium?.copyWith(fontSize: 18),
                     ),
                   ),
                   const AvatarPopupMenu(),
                 ],
               ),
             ),
-            
-            const SizedBox(height: 10),
-            
             Expanded(
-              child: _isLoading
+              child: _isLoading || _notes.isEmpty
                   ? const Center(child: CircularProgressIndicator())
-                  : _allNotes.isEmpty
-                      ? Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.bubble_chart_outlined,
-                                size: 64,
-                                color: Colors.grey[600],
-                              ),
-                              const SizedBox(height: 16),
-                              Text(
-                                'Нет заметок для отображения',
-                                style: theme.textTheme.bodyLarge?.copyWith(
-                                  color: Colors.grey[500],
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                'Создайте заметки и ссылки [[...]] между ними',
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: Colors.grey[600],
-                                ),
-                              ),
-                            ],
+                  : InteractiveViewer(
+                      transformationController: _transformationController,
+                      minScale: 0.3,
+                      maxScale: 3.0,
+                      constrained: false,
+                      boundaryMargin: const EdgeInsets.all(100),
+                      child: GestureDetector(
+                        onPanStart: (details) {
+                          // Проверяем, попали ли в узел
+                          final localPos = details.localPosition;
+                          for (var entry in _nodePositions.entries) {
+                            final distance = (entry.value - localPos).distance;
+                            if (distance < 20) {
+                              setState(() {
+                                _draggedNodeId = entry.key;
+                                _dragStartPosition = localPos;
+                                _nodeStartPosition = entry.value;
+                                _isDraggingNode = true;
+                              });
+                              break;
+                            }
+                          }
+                        },
+                        onPanUpdate: (details) {
+                          if (_isDraggingNode && _draggedNodeId != null) {
+                            setState(() {
+                              final newPos = _nodeStartPosition + (details.localPosition - _dragStartPosition);
+                              _nodePositions[_draggedNodeId!] = newPos;
+                            });
+                          }
+                        },
+                        onPanEnd: (details) {
+                          setState(() {
+                            _isDraggingNode = false;
+                            _draggedNodeId = null;
+                          });
+                        },
+                        child: Container(
+                          width: 1200,
+                          height: 800,
+                          child: CustomPaint(
+                            painter: GraphPainter(
+                              notes: _notes,
+                              positions: _nodePositions,
+                              links: _links,
+                              colorScheme: colorScheme,
+                              draggedNodeId: _draggedNodeId,
+                              onNodeTap: _onNodeTap,
+                            ),
                           ),
-                        )
-                      : _buildGraphWidget(),
+                        ),
+                      ),
+                    ),
             ),
           ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildGraphWidget() {
-    return InteractiveViewer(
-      minScale: 0.3,
-      maxScale: 2.0,
-      boundaryMargin: const EdgeInsets.all(50),
-      child: Container(
-        width: double.infinity,
-        height: double.infinity,
-        child: CustomPaint(
-          painter: GraphPainter(
-            notes: _allNotes,
-            links: _graphData,
-            colorScheme: Theme.of(context).colorScheme,
-            onNoteTap: _openNote,
-          ),
-          size: Size.infinite,
         ),
       ),
     );
@@ -162,136 +193,86 @@ class _GraphScreenState extends State<GraphScreen> {
 
 class GraphPainter extends CustomPainter {
   final List<Note> notes;
+  final Map<int, Offset> positions;
   final Map<int, List<int>> links;
   final ColorScheme colorScheme;
-  final Function(Note) onNoteTap;
-  
-  // Кэш для позиций узлов
-  Map<int, Offset> _positions = {};
-  Size _lastSize = Size.zero;
-  
+  final int? draggedNodeId;
+  final Function(int) onNodeTap;
+
   GraphPainter({
     required this.notes,
+    required this.positions,
     required this.links,
     required this.colorScheme,
-    required this.onNoteTap,
+    this.draggedNodeId,
+    required this.onNodeTap,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (_lastSize != size) {
-      _lastSize = size;
-      _calculatePositions(size);
-    }
+    if (positions.isEmpty) return;
     
-    // Рисуем связи (линии)
+    // Рисуем связи
     final linkPaint = Paint()
-      ..color = colorScheme.primary.withOpacity(0.4)
-      ..strokeWidth = 1.5
-      ..style = PaintingStyle.stroke;
+      ..color = colorScheme.primary.withOpacity(0.3)
+      ..strokeWidth = 1.5;
     
     for (var entry in links.entries) {
-      final sourcePos = _positions[entry.key];
-      if (sourcePos == null) continue;
-      
+      final source = positions[entry.key];
+      if (source == null) continue;
       for (var targetId in entry.value) {
-        final targetPos = _positions[targetId];
-        if (targetPos == null) continue;
-        
-        canvas.drawLine(sourcePos, targetPos, linkPaint);
+        final target = positions[targetId];
+        if (target == null) continue;
+        canvas.drawLine(source, target, linkPaint);
       }
     }
     
-    // Рисуем узлы (точки)
-    final nodePaint = Paint()
-      ..color = colorScheme.primary
-      ..style = PaintingStyle.fill;
-    
-    final borderPaint = Paint()
-      ..color = colorScheme.surface
-      ..strokeWidth = 2
-      ..style = PaintingStyle.stroke;
-    
-    final textPaint = TextPainter(
-      textDirection: TextDirection.ltr,
-    );
-    
+    // Рисуем узлы
     for (var note in notes) {
-      final pos = _positions[note.id!];
+      final pos = positions[note.id!];
       if (pos == null) continue;
       
-      // Точка
-      canvas.drawCircle(pos, 8, nodePaint);
-      canvas.drawCircle(pos, 8, borderPaint);
+      final isDragged = draggedNodeId == note.id;
+      final radius = isDragged ? 14.0 : 10.0;
       
-      // Название заметки
-      final textSpan = TextSpan(
-        text: note.title.length > 20 ? '${note.title.substring(0, 17)}...' : note.title,
-        style: TextStyle(
-          color: colorScheme.onSurface,
-          fontSize: 11,
-          fontWeight: FontWeight.w500,
-        ),
+      // Тень для перетаскиваемого
+      if (isDragged) {
+        final shadowPaint = Paint()
+          ..color = colorScheme.primary.withOpacity(0.3)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
+        canvas.drawCircle(pos, radius + 2, shadowPaint);
+      }
+      
+      // Основной круг
+      final nodePaint = Paint()
+        ..color = isDragged ? colorScheme.primary : colorScheme.primary.withOpacity(0.8);
+      canvas.drawCircle(pos, radius, nodePaint);
+      
+      // Обводка
+      final borderPaint = Paint()
+        ..color = colorScheme.surface
+        ..strokeWidth = 2
+        ..style = PaintingStyle.stroke;
+      canvas.drawCircle(pos, radius, borderPaint);
+      
+      // Текст
+      final textStyle = TextStyle(
+        color: colorScheme.onSurface,
+        fontSize: isDragged ? 12 : 10,
+        fontWeight: isDragged ? FontWeight.w600 : FontWeight.normal,
       );
-      textPaint.text = textSpan;
-      textPaint.layout();
-      textPaint.paint(
-        canvas,
-        Offset(pos.dx - textPaint.width / 2, pos.dy + 12),
-      );
-    }
-  }
-  
-  void _calculatePositions(Size size) {
-    final centerX = size.width / 2;
-    final centerY = size.height / 2;
-    final radius = (size.width < size.height ? size.width : size.height) * 0.35;
-    
-    // Если мало заметок – круг
-    if (notes.length <= 20) {
-      for (int i = 0; i < notes.length; i++) {
-        final note = notes[i];
-        final angle = (2 * pi * i) / notes.length;
-        final x = centerX + radius * cos(angle);
-        final y = centerY + radius * sin(angle);
-        _positions[note.id!] = Offset(x, y);
-      }
-    } else {
-      // Сетка для большого количества
-      final cols = (notes.length / 5).ceil();
-      final spacing = size.width / (cols + 1);
-      for (int i = 0; i < notes.length; i++) {
-        final note = notes[i];
-        final row = i ~/ cols;
-        final col = i % cols;
-        final x = spacing * (col + 1);
-        final y = 50.0 + row * 70;
-        _positions[note.id!] = Offset(x, y);
-      }
-    }
-    
-    // Сдвигаем связанные заметки ближе
-    for (int iteration = 0; iteration < 30; iteration++) {
-      for (var entry in links.entries) {
-        final sourcePos = _positions[entry.key];
-        if (sourcePos == null) continue;
-        
-        for (var targetId in entry.value) {
-          final targetPos = _positions[targetId];
-          if (targetPos == null) continue;
-          
-          final diff = targetPos - sourcePos;
-          final distance = diff.distance;
-          if (distance > 80) {
-            final force = diff * 0.05;
-            _positions[entry.key] = sourcePos + force;
-            _positions[targetId] = targetPos - force;
-          }
-        }
-      }
+      
+      final displayText = note.title.length > 15 ? '${note.title.substring(0, 12)}...' : note.title;
+      final textSpan = TextSpan(text: displayText, style: textStyle);
+      final tp = TextPainter(text: textSpan, textDirection: TextDirection.ltr);
+      tp.layout();
+      tp.paint(canvas, Offset(pos.dx - tp.width / 2, pos.dy + radius + 4));
     }
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
+  bool shouldRepaint(covariant GraphPainter oldDelegate) {
+    return oldDelegate.draggedNodeId != draggedNodeId || 
+           oldDelegate.positions != positions;
+  }
 }

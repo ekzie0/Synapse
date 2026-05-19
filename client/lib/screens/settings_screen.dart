@@ -447,7 +447,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         context: context,
         builder: (context) => AlertDialog(
           title: const Text('Экспорт завершен'),
-          content: Text('Файл сохранен\nРазмер: ${sizeMB.toStringAsFixed(2)} МБ'),
+          content: Text('Файл сохранен в папку Загрузки\nРазмер: ${sizeMB.toStringAsFixed(2)} МБ'),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
@@ -479,7 +479,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         context: context,
         builder: (context) => AlertDialog(
           title: const Text('Экспорт в Markdown завершен'),
-          content: Text('Папка сохранена:\n$dirPath'),
+          content: Text('Папка сохранена в Загрузки:\n$dirPath'),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
@@ -525,7 +525,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     
     if (success && mounted) {
       final folderProvider = Provider.of<FolderProvider>(context, listen: false);
-      await folderProvider.loadRootFolders(authProvider.currentUser!.id!);
+      await folderProvider.loadAllData(authProvider.currentUser!.id!);
       
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Импорт завершен')),
@@ -546,7 +546,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     
     if (success && mounted) {
       final folderProvider = Provider.of<FolderProvider>(context, listen: false);
-      await folderProvider.loadRootFolders(authProvider.currentUser!.id!);
+      await folderProvider.loadAllData(authProvider.currentUser!.id!);
       
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Импорт Markdown завершен')),
@@ -569,8 +569,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           children: [
             Text(
               syncProvider.isAutoSyncRunning 
-                  ? '✅ Синхронизация активна' 
-                  : '⏸ Синхронизация отключена',
+                  ? 'Синхронизация активна' 
+                  : 'Синхронизация отключена',
               style: const TextStyle(fontSize: 16),
             ),
             const SizedBox(height: 16),

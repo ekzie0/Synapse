@@ -15,7 +15,6 @@ class BackupService {
   final NoteRepository _noteRepo = NoteRepository();
   final TagRepository _tagRepo = TagRepository();
 
-  // Структура для экспорта
   Map<String, dynamic> _buildExportData(
     List<Folder> folders,
     List<Note> notes,
@@ -49,7 +48,6 @@ class BackupService {
     };
   }
 
-  // Экспорт в JSON файл
   Future<String?> exportToJson(int userId) async {
     try {
       final folders = await _folderRepo.getAllFolders(userId);
@@ -59,9 +57,9 @@ class BackupService {
       final data = _buildExportData(folders, notes, tags);
       final jsonString = const JsonEncoder.withIndent('  ').convert(data);
       
-      final directory = await getApplicationDocumentsDirectory();
+      final directory = await getDownloadsDirectory();
       final fileName = 'synapse_backup_${DateTime.now().millisecondsSinceEpoch}.json';
-      final filePath = '${directory.path}/$fileName';
+      final filePath = '${directory!.path}/$fileName';
       final file = File(filePath);
       await file.writeAsString(jsonString);
       
@@ -72,12 +70,11 @@ class BackupService {
     }
   }
 
-  // Экспорт в Markdown (папка с файлами)
   Future<String?> exportToMarkdown(int userId) async {
     try {
       final notes = await _noteRepo.getAllNotes(userId);
-      final directory = await getApplicationDocumentsDirectory();
-      final exportDir = Directory('${directory.path}/synapse_markdown_${DateTime.now().millisecondsSinceEpoch}');
+      final directory = await getDownloadsDirectory();
+      final exportDir = Directory('${directory!.path}/synapse_markdown_${DateTime.now().millisecondsSinceEpoch}');
       await exportDir.create();
       
       for (var note in notes) {
@@ -91,6 +88,30 @@ class BackupService {
     } catch (e) {
       print('Ошибка экспорта в Markdown: $e');
       return null;
+    }
+  }
+
+  Future<Directory?> getDownloadsDirectory() async {
+    if (Platform.isWindows) {
+      final home = Platform.environment['USERPROFILE'];
+      if (home != null) {
+        final downloads = Directory('$home\\Downloads');
+        if (await downloads.exists()) {
+          return downloads;
+        }
+      }
+      return Directory.current;
+    } else if (Platform.isLinux || Platform.isMacOS) {
+      final home = Platform.environment['HOME'];
+      if (home != null) {
+        final downloads = Directory('$home/Downloads');
+        if (await downloads.exists()) {
+          return downloads;
+        }
+      }
+      return Directory.current;
+    } else {
+      return await getApplicationDocumentsDirectory();
     }
   }
 
@@ -116,51 +137,35 @@ class BackupService {
     return name.replaceAll(invalidChars, '_');
   }
 
-  // Импорт из JSON
   Future<bool> importFromJson(String filePath, int userId) async {
     try {
       final file = File(filePath);
       final jsonString = await file.readAsString();
       final data = jsonDecode(jsonString);
       
-      // Создаем карты старых ID -> новые ID
       final folderIdMap = <int, int>{};
       final tagIdMap = <int, int>{};
       
-      // Импорт тегов
-      for (var tagData in data['tags']) {
-        final tag = Tag(
-          userId: userId,
-          name: tagData['name'],
-          color: tagData['color'],
-        );
-        final newId = await _tagRepo.createTag(tag);
-        tagIdMap[tagData['id']] = newId;
+      if (data['tags'] != null) {
+        for (var tagData in data['tags']) {
+          final tag = Tag(
+            userId: userId,
+            name: tagData['name'],
+            color: tagData['color'],
+          );
+          final newId = await _tagRepo.createTag(tag);
+          tagIdMap[tagData['id']] = newId;
+        }
       }
       
-      // Импорт папок (сначала корневые)
-      final rootFolders = (data['folders'] as List).where((f) => f['parent_id'] == null).toList();
-      final childFolders = (data['folders'] as List).where((f) => f['parent_id'] != null).toList();
-      
-      for (var folderData in rootFolders) {
-        final folder = Folder(
-          userId: userId,
-          parentId: null,
-          name: folderData['name'],
-          createdAt: folderData['created_at'],
-          updatedAt: folderData['updated_at'],
-        );
-        final newId = await _folderRepo.createFolder(folder);
-        folderIdMap[folderData['id']] = newId;
-      }
-      
-      for (var folderData in childFolders) {
-        final oldParentId = folderData['parent_id'];
-        final newParentId = folderIdMap[oldParentId];
-        if (newParentId != null) {
+      if (data['folders'] != null) {
+        final rootFolders = (data['folders'] as List).where((f) => f['parent_id'] == null).toList();
+        final childFolders = (data['folders'] as List).where((f) => f['parent_id'] != null).toList();
+        
+        for (var folderData in rootFolders) {
           final folder = Folder(
             userId: userId,
-            parentId: newParentId,
+            parentId: null,
             name: folderData['name'],
             createdAt: folderData['created_at'],
             updatedAt: folderData['updated_at'],
@@ -168,24 +173,41 @@ class BackupService {
           final newId = await _folderRepo.createFolder(folder);
           folderIdMap[folderData['id']] = newId;
         }
+        
+        for (var folderData in childFolders) {
+          final oldParentId = folderData['parent_id'];
+          final newParentId = folderIdMap[oldParentId];
+          if (newParentId != null) {
+            final folder = Folder(
+              userId: userId,
+              parentId: newParentId,
+              name: folderData['name'],
+              createdAt: folderData['created_at'],
+              updatedAt: folderData['updated_at'],
+            );
+            final newId = await _folderRepo.createFolder(folder);
+            folderIdMap[folderData['id']] = newId;
+          }
+        }
       }
       
-      // Импорт заметок
-      for (var noteData in data['notes']) {
-        final oldFolderId = noteData['folder_id'];
-        final newFolderId = oldFolderId != null ? folderIdMap[oldFolderId] : null;
-        
-        final note = Note(
-          userId: userId,
-          folderId: newFolderId,
-          title: noteData['title'],
-          content: noteData['content'],
-          createdAt: noteData['created_at'],
-          updatedAt: noteData['updated_at'],
-          tags: (noteData['tags'] as List?)?.cast<String>(),
-          images: (noteData['images'] as List?)?.cast<String>(),
-        );
-        await _noteRepo.createNote(note);
+      if (data['notes'] != null) {
+        for (var noteData in data['notes']) {
+          final oldFolderId = noteData['folder_id'];
+          final newFolderId = oldFolderId != null ? folderIdMap[oldFolderId] : null;
+          
+          final note = Note(
+            userId: userId,
+            folderId: newFolderId,
+            title: noteData['title'],
+            content: noteData['content'],
+            createdAt: noteData['created_at'],
+            updatedAt: noteData['updated_at'],
+            tags: (noteData['tags'] as List?)?.cast<String>(),
+            images: (noteData['images'] as List?)?.cast<String>(),
+          );
+          await _noteRepo.createNote(note);
+        }
       }
       
       return true;
@@ -195,7 +217,6 @@ class BackupService {
     }
   }
 
-  // Импорт из Markdown (папка с .md файлами)
   Future<bool> importFromMarkdown(String folderPath, int userId) async {
     try {
       final directory = Directory(folderPath);
@@ -221,6 +242,7 @@ class BackupService {
     String? title;
     String? body;
     List<String> tags = [];
+    bool afterSeparator = false;
     
     for (var line in lines) {
       if (line.startsWith('# ')) {
@@ -229,10 +251,14 @@ class BackupService {
         final tagsStr = line.replaceAll('**Теги:**', '').trim();
         tags = tagsStr.split(',').map((t) => t.trim()).toList();
       } else if (line.startsWith('---')) {
-        // Разделитель, после него идет содержимое
-        final startIndex = lines.indexOf(line) + 1;
-        body = lines.sublist(startIndex).join('\n').trim();
-        break;
+        afterSeparator = true;
+        continue;
+      } else if (afterSeparator) {
+        if (body == null) {
+          body = line;
+        } else {
+          body = '$body\n$line';
+        }
       }
     }
     
@@ -249,13 +275,10 @@ class BackupService {
     );
   }
 
-  // Поделиться файлом
   Future<void> shareFile(String filePath) async {
-    final file = File(filePath);
     await Share.shareXFiles([XFile(filePath)], text: 'Резервная копия Synapse');
   }
 
-  // Выбрать файл для импорта
   Future<String?> pickJsonFile() async {
     final result = await FilePicker.platform.pickFiles(
       allowedExtensions: ['json'],
@@ -267,7 +290,6 @@ class BackupService {
     return null;
   }
 
-  // Выбрать папку для импорта Markdown
   Future<String?> pickMarkdownFolder() async {
     final result = await FilePicker.platform.getDirectoryPath(
       dialogTitle: 'Выберите папку с Markdown файлами',
@@ -275,7 +297,6 @@ class BackupService {
     return result;
   }
 
-  // Получить размер резервной копии
   Future<int> getBackupSize(String filePath) async {
     final file = File(filePath);
     if (await file.exists()) {

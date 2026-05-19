@@ -13,22 +13,37 @@ class FolderProvider extends ChangeNotifier {
   List<Folder> _rootFolders = [];
   Folder? _currentFolder;
   List<Folder> _currentSubfolders = [];
-  List<Note> _currentNotes = [];
-  List<Note> _rootNotes = [];
   List<Note> _allNotes = [];
-  
   bool _isLoading = false;
 
   List<Folder> get rootFolders => _rootFolders;
   Folder? get currentFolder => _currentFolder;
   List<Folder> get currentSubfolders => _currentSubfolders;
-  List<Note> get currentNotes => _currentNotes;
-  List<Note> get rootNotes => _rootNotes;
   List<Note> get allNotes => _allNotes;
+  
+  // Заметки в текущей папке
+  List<Note> get currentNotes {
+    if (_currentFolder == null) return _allNotes.where((n) => n.folderId == null).toList();
+    return _allNotes.where((n) => n.folderId == _currentFolder!.id).toList();
+  }
+  
+  // Заметки в корне
+  List<Note> get rootNotes {
+    return _allNotes.where((n) => n.folderId == null).toList();
+  }
+  
   bool get isLoading => _isLoading;
   bool get isInRoot => _currentFolder == null;
 
-  // Поиск
+  Future<Folder?> getFolderById(int folderId) async {
+    return await _folderRepo.getFolderById(folderId);
+  }
+
+  // Для обратной совместимости
+  Future<void> loadRootFolders(int userId) async {
+    await loadAllData(userId);
+  }
+
   List<Note> searchAllNotes(String query) {
     if (query.isEmpty) return [];
     final lowerQuery = query.toLowerCase();
@@ -44,15 +59,12 @@ class FolderProvider extends ChangeNotifier {
     }).toList();
   }
 
-  Future<void> loadRootFolders(int userId) async {
+  Future<void> loadAllData(int userId) async {
     _isLoading = true;
     notifyListeners();
     
     _rootFolders = await _folderRepo.getRootFolders(userId);
-    _rootNotes = await _noteRepo.getNotesWithoutFolder(userId);
     _allNotes = await _noteRepo.getAllNotes(userId);
-    
-    print("Загружено заметок для поиска: ${_allNotes.length}");
     
     for (var i = 0; i < _rootFolders.length; i++) {
       final subfolders = await _folderRepo.getSubfolders(userId, _rootFolders[i].id!);
@@ -68,21 +80,14 @@ class FolderProvider extends ChangeNotifier {
   }
 
   Future<void> openFolder(Folder folder, int userId) async {
-    _isLoading = true;
-    notifyListeners();
-    
     _currentFolder = folder;
     _currentSubfolders = await _folderRepo.getSubfolders(userId, folder.id!);
-    _currentNotes = await _folderRepo.getNotesInFolder(userId, folder.id!);
-    
-    _isLoading = false;
     notifyListeners();
   }
 
   void goBack() {
     _currentFolder = null;
     _currentSubfolders = [];
-    _currentNotes = [];
     notifyListeners();
   }
 
@@ -98,11 +103,7 @@ class FolderProvider extends ChangeNotifier {
     
     final id = await _folderRepo.createFolder(folder);
     if (id > 0) {
-      if (parentFolderId != null) {
-        await _refreshFolderContent(parentFolderId, userId);
-      } else {
-        await loadRootFolders(userId);
-      }
+      await loadAllData(userId);
       return true;
     }
     return false;
@@ -123,15 +124,7 @@ class FolderProvider extends ChangeNotifier {
     if (id > 0) {
       final createdNote = note.copyWith(id: id);
       _allNotes.add(createdNote);
-      
-      // Обновляем связи
       await _linkRepo.updateLinksForNote(createdNote, _allNotes);
-
-      if (folderId != null) {
-        _currentNotes = await _folderRepo.getNotesInFolder(userId, folderId);
-      } else {
-        _rootNotes = await _noteRepo.getNotesWithoutFolder(userId);
-      }
       notifyListeners();
       return true;
     }
@@ -140,21 +133,11 @@ class FolderProvider extends ChangeNotifier {
 
   Future<bool> updateNote(Note note) async {
     final result = await _noteRepo.updateNote(note);
-    
     if (result > 0) {
-      // Обновляем связи
       await _linkRepo.updateLinksForNote(note, _allNotes);
-      
       final index = _allNotes.indexWhere((n) => n.id == note.id);
       if (index != -1) {
         _allNotes[index] = note;
-      }
-
-      if (note.folderId != null) {
-        await _refreshFolderContent(note.folderId!, note.userId);
-      } else {
-        _rootNotes = await _noteRepo.getNotesWithoutFolder(note.userId);
-        if (_currentFolder == null) _currentNotes = [];
       }
       notifyListeners();
       return true;
@@ -163,18 +146,9 @@ class FolderProvider extends ChangeNotifier {
   }
 
   Future<bool> deleteNote(int noteId, int userId) async {
-    final note = await _noteRepo.getNoteById(noteId, userId);
-    final folderId = note?.folderId;
-    
     final result = await _noteRepo.deleteNote(noteId, userId);
     if (result > 0) {
       _allNotes.removeWhere((n) => n.id == noteId);
-
-      if (folderId != null) {
-        await _refreshFolderContent(folderId, userId);
-      } else {
-        _rootNotes = await _noteRepo.getNotesWithoutFolder(userId);
-      }
       notifyListeners();
       return true;
     }
@@ -184,40 +158,14 @@ class FolderProvider extends ChangeNotifier {
   Future<bool> deleteFolder(Folder folder, int userId) async {
     final result = await _folderRepo.deleteFolder(folder.id!, userId);
     if (result > 0) {
-      _allNotes.removeWhere((n) => n.folderId == folder.id);
-
-      if (folder.parentId != null) {
-        await _refreshFolderContent(folder.parentId!, userId);
-      } else {
-        await loadRootFolders(userId);
+      await loadAllData(userId);
+      if (_currentFolder?.id == folder.id) {
+        _currentFolder = null;
       }
       notifyListeners();
       return true;
     }
     return false;
-  }
-
-  Future<void> _refreshFolderContent(int folderId, int userId) async {
-    final updatedSubfolders = await _folderRepo.getSubfolders(userId, folderId);
-    final updatedNotes = await _folderRepo.getNotesInFolder(userId, folderId);
-    
-    if (_currentFolder?.id == folderId) {
-      _currentSubfolders = updatedSubfolders;
-      _currentNotes = updatedNotes;
-    }
-    await _updateFolderInTree(_rootFolders, folderId, updatedSubfolders);
-  }
-
-  Future<void> _updateFolderInTree(List<Folder> folders, int folderId, List<Folder> subfolders) async {
-    for (var i = 0; i < folders.length; i++) {
-      if (folders[i].id == folderId) {
-        folders[i] = folders[i].copyWith(subfolders: subfolders);
-        break;
-      }
-      if (folders[i].subfolders != null && folders[i].subfolders!.isNotEmpty) {
-        await _updateFolderInTree(folders[i].subfolders!, folderId, subfolders);
-      }
-    }
   }
 
   Note? getNoteByTitle(String title) {
@@ -233,11 +181,9 @@ class FolderProvider extends ChangeNotifier {
 
   void clear() {
     _rootFolders = [];
-    _rootNotes = [];
     _allNotes = [];
     _currentFolder = null;
     _currentSubfolders = [];
-    _currentNotes = [];
     notifyListeners();
   }
 }
