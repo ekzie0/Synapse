@@ -21,6 +21,23 @@ class _HomeScreenState extends State<HomeScreen> {
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
 
+  @override
+  void initState() {
+    super.initState();
+    
+    // Вызывается сразу после того, как экран построился в первый раз
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final folderProvider = Provider.of<FolderProvider>(context, listen: false);
+      
+      // Проверяем, что юзер авторизован и у него есть ID
+      if (authProvider.currentUser != null && authProvider.currentUser!.id != null) {
+        // Загружаем данные из локальной БД/сервера в провайдер
+        folderProvider.loadAllData(authProvider.currentUser!.id!);
+      }
+    });
+  }
+
   List<Note> _getRecentNotes(FolderProvider provider) {
     final allNotes = [...provider.rootNotes, ...provider.currentNotes];
     // Убираем дубликаты по id

@@ -558,42 +558,54 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  void _showSyncDialog(BuildContext context, SyncProvider syncProvider) {
+void _showSyncDialog(BuildContext context) {
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Wi-Fi синхронизация'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              syncProvider.isAutoSyncRunning 
-                  ? 'Синхронизация активна' 
-                  : 'Синхронизация отключена',
-              style: const TextStyle(fontSize: 16),
+      builder: (dialogContext) => Consumer<SyncProvider>(
+        builder: (context, syncProvider, child) {
+          return AlertDialog(
+            title: const Text('Wi-Fi синхронизация'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  syncProvider.isAutoSyncRunning 
+                      ? 'Синхронизация активна' 
+                      : 'Синхронизация отключена',
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    const Text('Статус: ', style: TextStyle(fontSize: 14)),
+                    Text(
+                      syncProvider.syncStatus,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        color: syncProvider.syncStatus == 'Синхронизация завершена'
+                            ? Colors.green
+                            : Colors.grey[600],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Устройства в одной Wi-Fi сети будут автоматически обмениваться заметками.',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+              ],
             ),
-            const SizedBox(height: 16),
-            Text(
-              syncProvider.syncStatus,
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey[600],
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Закрыть'),
               ),
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'Устройства в одной Wi-Fi сети будут автоматически обмениваться заметками.',
-              style: TextStyle(fontSize: 12, color: Colors.grey),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Закрыть'),
-          ),
-        ],
+            ],
+          );
+        },
       ),
     );
   }
@@ -1112,7 +1124,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               icon: Icons.wifi,
               title: 'Wi-Fi синхронизация',
               value: syncProvider.isAutoSyncRunning ? 'Вкл' : 'Выкл',
-              onTap: () => _showSyncDialog(context, syncProvider),
+              onTap: () => _showSyncDialog(context),
               showSwitch: true,
               switchValue: syncProvider.isAutoSyncRunning,
               onSwitchChanged: (value) async {
@@ -1121,7 +1133,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 } else {
                   await syncProvider.stopAutoSync();
                 }
-                setState(() {});
               },
             ),
             _buildDivider(),

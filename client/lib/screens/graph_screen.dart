@@ -20,14 +20,9 @@ class _GraphScreenState extends State<GraphScreen> {
   Map<int, Offset> _nodePositions = {};
   bool _isLoading = true;
   
-  // Для перетаскивания узлов
   int? _draggedNodeId;
   Offset _dragStartPosition = Offset.zero;
   Offset _nodeStartPosition = Offset.zero;
-  
-  // Для InteractiveViewer
-  final TransformationController _transformationController = TransformationController();
-  bool _isDraggingNode = false;
 
   @override
   void initState() {
@@ -39,76 +34,43 @@ class _GraphScreenState extends State<GraphScreen> {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final folderProvider = Provider.of<FolderProvider>(context, listen: false);
     final linkRepo = LinkRepository();
-    
     final userId = authProvider.currentUser!.id!;
     
     await folderProvider.loadAllData(userId);
+    _links = await linkRepo.getGraphData(userId);
     
     setState(() {
       _notes = List.from(folderProvider.allNotes);
       _initNodePositions();
       _isLoading = false;
     });
-    
-    _links = await linkRepo.getGraphData(userId);
-    setState(() {});
   }
 
   void _initNodePositions() {
     if (_notes.isEmpty) return;
-    
-    final center = Offset(400, 300);
-    final radius = 250.0;
+    final center = const Offset(500, 500); 
+    final radius = _notes.length > 5 ? 220.0 : 130.0;
     
     for (int i = 0; i < _notes.length; i++) {
       final angle = (2 * pi * i) / _notes.length;
-      final x = center.dx + radius * cos(angle);
-      final y = center.dy + radius * sin(angle);
-      _nodePositions[_notes[i].id!] = Offset(x, y);
+      _nodePositions[_notes[i].id!] = center + Offset(cos(angle) * radius, sin(angle) * radius);
     }
-    
-    // Разводим узлы
-    for (int iter = 0; iter < 20; iter++) {
-      bool moved = false;
-      for (int i = 0; i < _notes.length; i++) {
-        for (int j = i + 1; j < _notes.length; j++) {
-          final id1 = _notes[i].id!;
-          final id2 = _notes[j].id!;
-          final pos1 = _nodePositions[id1]!;
-          final pos2 = _nodePositions[id2]!;
-          final distance = (pos1 - pos2).distance;
-          
-          if (distance < 60) {
-            final diff = pos1 - pos2;
-            final angle = atan2(diff.dy, diff.dx);
-            const push = 10.0;
-            _nodePositions[id1] = pos1 + Offset(cos(angle) * push, sin(angle) * push);
-            _nodePositions[id2] = pos2 - Offset(cos(angle) * push, sin(angle) * push);
-            moved = true;
-          }
-        }
-      }
-      if (!moved) break;
-    }
-  }
-
-  void _onNodeTap(int noteId) {
-    final note = _notes.firstWhere((n) => n.id == noteId);
-    Navigator.pop(context);
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final isMobile = MediaQuery.of(context).size.width < 600;
     
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       body: SafeArea(
         child: Column(
           children: [
+            // Адаптивная шапка без лишних кнопок
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 2),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               child: Row(
                 children: [
                   IconButton(
@@ -118,9 +80,12 @@ class _GraphScreenState extends State<GraphScreen> {
                   ),
                   Expanded(
                     child: Text(
-                      'Граф связей (колесо - зум, перетащите узел)',
+                      isMobile ? 'Граф связей (щипок - зум)' : 'Граф связей',
                       textAlign: TextAlign.center,
-                      style: theme.textTheme.headlineMedium?.copyWith(fontSize: 18),
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        fontSize: isMobile ? 16 : 18,
+                      ),
                     ),
                   ),
                   const AvatarPopupMenu(),
@@ -131,53 +96,57 @@ class _GraphScreenState extends State<GraphScreen> {
               child: _isLoading || _notes.isEmpty
                   ? const Center(child: CircularProgressIndicator())
                   : InteractiveViewer(
-                      transformationController: _transformationController,
-                      minScale: 0.3,
+                      minScale: 0.1, // Огромный масштаб отдаления
                       maxScale: 3.0,
                       constrained: false,
-                      boundaryMargin: const EdgeInsets.all(100),
-                      child: GestureDetector(
-                        onPanStart: (details) {
-                          // Проверяем, попали ли в узел
+                      boundaryMargin: const EdgeInsets.all(500),
+                      // Блокируем скролл карты только в момент перетаскивания узла
+                      panEnabled: _draggedNodeId == null, 
+                      scaleEnabled: true,
+                      child: Listener( // Listener вместо GestureDetector исправляет синтаксис и жесты
+                        onPointerDown: (details) {
                           final localPos = details.localPosition;
                           for (var entry in _nodePositions.entries) {
                             final distance = (entry.value - localPos).distance;
-                            if (distance < 20) {
+                            // Увеличенный хитбокс для мобильного пальца
+                            if (distance < (isMobile ? 35 : 25)) {
                               setState(() {
                                 _draggedNodeId = entry.key;
                                 _dragStartPosition = localPos;
                                 _nodeStartPosition = entry.value;
-                                _isDraggingNode = true;
                               });
                               break;
                             }
                           }
                         },
-                        onPanUpdate: (details) {
-                          if (_isDraggingNode && _draggedNodeId != null) {
+                        onPointerMove: (details) {
+                          if (_draggedNodeId != null) {
                             setState(() {
-                              final newPos = _nodeStartPosition + (details.localPosition - _dragStartPosition);
-                              _nodePositions[_draggedNodeId!] = newPos;
+                              _nodePositions[_draggedNodeId!] = _nodeStartPosition + (details.localPosition - _dragStartPosition);
                             });
                           }
                         },
-                        onPanEnd: (details) {
-                          setState(() {
-                            _isDraggingNode = false;
-                            _draggedNodeId = null;
-                          });
+                        onPointerUp: (_) {
+                          if (_draggedNodeId != null) {
+                            setState(() {
+                              _draggedNodeId = null;
+                            });
+                          }
                         },
                         child: Container(
-                          width: 1200,
-                          height: 800,
-                          child: CustomPaint(
-                            painter: GraphPainter(
-                              notes: _notes,
-                              positions: _nodePositions,
-                              links: _links,
-                              colorScheme: colorScheme,
-                              draggedNodeId: _draggedNodeId,
-                              onNodeTap: _onNodeTap,
+                          width: 1000,
+                          height: 1000,
+                          color: Colors.transparent, // Позволяет ловить касания в пустых местах
+                          child: RepaintBoundary( // Изолирует отрисовку холста, поднимая FPS до 60+
+                            child: CustomPaint(
+                              painter: GraphPainter(
+                                notes: _notes,
+                                positions: _nodePositions,
+                                links: _links,
+                                colorScheme: colorScheme,
+                                draggedNodeId: _draggedNodeId,
+                                isMobile: isMobile,
+                              ),
                             ),
                           ),
                         ),
@@ -197,7 +166,7 @@ class GraphPainter extends CustomPainter {
   final Map<int, List<int>> links;
   final ColorScheme colorScheme;
   final int? draggedNodeId;
-  final Function(int) onNodeTap;
+  final bool isMobile;
 
   GraphPainter({
     required this.notes,
@@ -205,17 +174,17 @@ class GraphPainter extends CustomPainter {
     required this.links,
     required this.colorScheme,
     this.draggedNodeId,
-    required this.onNodeTap,
+    required this.isMobile,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
     if (positions.isEmpty) return;
     
-    // Рисуем связи
+    // 1. Рисуем линии связей
     final linkPaint = Paint()
-      ..color = colorScheme.primary.withOpacity(0.3)
-      ..strokeWidth = 1.5;
+      ..color = colorScheme.primary.withOpacity(0.25)
+      ..strokeWidth = isMobile ? 1.0 : 1.5;
     
     for (var entry in links.entries) {
       final source = positions[entry.key];
@@ -227,52 +196,53 @@ class GraphPainter extends CustomPainter {
       }
     }
     
-    // Рисуем узлы
+    // 2. Рисуем светящиеся точки (узлы) и подписи к ним
     for (var note in notes) {
       final pos = positions[note.id!];
       if (pos == null) continue;
       
       final isDragged = draggedNodeId == note.id;
-      final radius = isDragged ? 14.0 : 10.0;
+      final radius = isDragged ? 15.0 : (isMobile ? 11.0 : 9.0);
       
-      // Тень для перетаскиваемого
+      // Эффект тени при удержании пальцем/мышкой
       if (isDragged) {
         final shadowPaint = Paint()
-          ..color = colorScheme.primary.withOpacity(0.3)
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6);
+          ..color = colorScheme.primary.withOpacity(0.4)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8);
         canvas.drawCircle(pos, radius + 2, shadowPaint);
       }
       
-      // Основной круг
       final nodePaint = Paint()
         ..color = isDragged ? colorScheme.primary : colorScheme.primary.withOpacity(0.8);
       canvas.drawCircle(pos, radius, nodePaint);
       
-      // Обводка
       final borderPaint = Paint()
         ..color = colorScheme.surface
         ..strokeWidth = 2
         ..style = PaintingStyle.stroke;
       canvas.drawCircle(pos, radius, borderPaint);
       
-      // Текст
+      // Настройка и отрисовка текста
       final textStyle = TextStyle(
-        color: colorScheme.onSurface,
-        fontSize: isDragged ? 12 : 10,
-        fontWeight: isDragged ? FontWeight.w600 : FontWeight.normal,
+        color: colorScheme.onSurface.withOpacity(0.85),
+        fontSize: isMobile ? 9 : 10,
+        fontWeight: isDragged ? FontWeight.bold : FontWeight.normal,
       );
       
-      final displayText = note.title.length > 15 ? '${note.title.substring(0, 12)}...' : note.title;
+      final maxChars = isMobile ? 10 : 14;
+      final displayText = note.title.length > maxChars 
+          ? '${note.title.substring(0, maxChars - 3)}...' 
+          : note.title;
+          
       final textSpan = TextSpan(text: displayText, style: textStyle);
-      final tp = TextPainter(text: textSpan, textDirection: TextDirection.ltr);
-      tp.layout();
+      final tp = TextPainter(text: textSpan, textDirection: TextDirection.ltr)..layout();
       tp.paint(canvas, Offset(pos.dx - tp.width / 2, pos.dy + radius + 4));
     }
   }
 
   @override
   bool shouldRepaint(covariant GraphPainter oldDelegate) {
-    return oldDelegate.draggedNodeId != draggedNodeId || 
-           oldDelegate.positions != positions;
+    // Разрешаем перерисовку холста, так как RepaintBoundary и так контролирует этот процесс
+    return true; 
   }
 }

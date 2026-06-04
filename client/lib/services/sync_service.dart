@@ -3,20 +3,23 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:synapse/database/repositories/link_repository.dart';
 import 'package:web_socket_channel/io.dart';
 import 'package:network_info_plus/network_info_plus.dart';
+import 'package:nsd/nsd.dart'; 
 import 'package:synapse/database/models/note_model.dart';
 import 'package:synapse/database/repositories/note_repository.dart';
 
 class SyncService {
   static const int _port = 8080;
-  static const int _broadcastPort = 8081;
+  static const String _serviceType = '_synapse._tcp'; 
   
   HttpServer? _server;
-  RawDatagramSocket? _udpSocket;
-  List<IOWebSocketChannel> _clients = [];
-  Set<String> _syncedDevices = {};
-  Timer? _broadcastTimer;
+  Registration? _registration; 
+  Discovery? _discovery;       
+  
+  final List<IOWebSocketChannel> _clients = [];
+  final Set<String> _syncedDevices = {};
   bool _isRunning = false;
   
   final NoteRepository _noteRepo = NoteRepository();
@@ -24,93 +27,131 @@ class SyncService {
   Future<void> startAutoSync(int userId) async {
     if (_isRunning) return;
     _isRunning = true;
+    
     await _startServer(userId);
-    await _startBroadcast();
-    _startUdpListener(userId);
+    await _startMdns(userId);
   }
   
   Future<void> stopAutoSync() async {
-    _isRunning = false;
-    _broadcastTimer?.cancel();
-    _udpSocket?.close();
+    if (!_isRunning) return;
+    _isRunning = false; // Мгновенно ставим флаг в false
+    
+    // Безопасно останавливаем mDNS поиск и регистрацию
+    try {
+      if (_discovery != null) {
+        // Правильный вызов остановки discovery в библиотеке nsd
+        await stopDiscovery(_discovery!);
+        _discovery = null;
+      }
+    } catch (e) {
+      print('Ошибка остановки discovery: $e');
+    }
+
+    try {
+      if (_registration != null) {
+        // Правильный вызов отмены регистрации в библиотеке nsd
+        await unregister(_registration!);
+        _registration = null;
+      }
+    } catch (e) {
+      print('Ошибка отмены регистрации mDNS: $e');
+    }
+    
+    _syncedDevices.clear();
     await _stopServer();
   }
   
   Future<void> _startServer(int userId) async {
     final ip = await _getLocalIp();
-    if (ip == null) return;
+    if (ip == null) {
+      _isRunning = false;
+      return;
+    }
     
-    _server = await HttpServer.bind(InternetAddress(ip), _port);
-    _server!.listen((HttpRequest request) async {
-      if (request.uri.path == '/ws' && WebSocketTransformer.isUpgradeRequest(request)) {
-        final WebSocket webSocket = await WebSocketTransformer.upgrade(request);
-        final channel = IOWebSocketChannel(webSocket);
-        _clients.add(channel);
-        channel.stream.listen((data) {
-          _handleData(data, userId, channel);
-        }, onDone: () {
-          _clients.remove(channel);
-        });
-      }
-    });
-  }
-  
-  Future<void> _startBroadcast() async {
-    final ip = await _getLocalIp();
-    if (ip == null) return;
-    
-    _broadcastTimer = Timer.periodic(const Duration(seconds: 5), (timer) async {
-      final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
-      final message = utf8.encode(jsonEncode({
-        'type': 'synapse_discovery',
-        'ip': ip,
-        'port': _port,
-        'name': await _getDeviceName(),
-      }));
-      socket.send(message, InternetAddress('255.255.255.255'), _broadcastPort);
-      socket.close();
-    });
-  }
-  
-  void _startUdpListener(int userId) async {
-    _udpSocket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, _broadcastPort);
-    _udpSocket!.listen((event) {
-      if (event == RawSocketEvent.read) {
-        final datagram = _udpSocket!.receive();
-        if (datagram != null) {
-          final msg = utf8.decode(datagram.data);
-          try {
-            final data = jsonDecode(msg);
-            if (data['type'] == 'synapse_discovery') {
-              final id = '${data['ip']}:${data['port']}';
-              if (!_syncedDevices.contains(id)) {
-                _syncedDevices.add(id);
-                _connectAndSync(data['ip'], data['port'], userId);
-              }
-            }
-          } catch (_) {}
+    try {
+      _server = await HttpServer.bind(InternetAddress(ip), _port, shared: true);
+      _server!.listen((HttpRequest request) async {
+        if (!_isRunning) return; // Если сервис остановлен, игнорируем запросы
+        
+        if (request.uri.path == '/ws' && WebSocketTransformer.isUpgradeRequest(request)) {
+          final WebSocket webSocket = await WebSocketTransformer.upgrade(request);
+          final channel = IOWebSocketChannel(webSocket);
+          _clients.add(channel);
+          channel.stream.listen((data) {
+            if (_isRunning) _handleData(data, userId, channel);
+          }, onDone: () {
+            _clients.remove(channel);
+          }, onError: (_) {
+            _clients.remove(channel);
+          });
         }
-      }
-    });
+      }, onError: (e) => print('Ошибка сервера: $e'));
+    } catch (_) {
+      _isRunning = false;
+    }
+  }
+  
+  Future<void> _startMdns(int userId) async {
+    try {
+      _registration = await register(const Service(
+        name: 'Synapse-Device',
+        type: _serviceType,
+        port: _port,
+      ));
+
+      _discovery = await startDiscovery(_serviceType);
+      _discovery!.addListener(() {
+        if (!_isRunning) return; // Важно: если мы выключили сервис, выходим!
+
+        for (var service in _discovery!.services) {
+          final ip = service.addresses?.isNotEmpty == true ? service.addresses!.first.address : null;
+          final port = service.port;
+          
+          if (ip != null && port != null) {
+            final id = '$ip:$port';
+            if (!_syncedDevices.contains(id)) {
+              _syncedDevices.add(id);
+              _connectAndSync(ip, port, userId);
+            }
+          }
+        }
+      });
+    } catch (_) {
+      _isRunning = false;
+    }
   }
   
   Future<void> _connectAndSync(String ip, int port, int userId) async {
+    if (!_isRunning) return;
+    
     try {
       final channel = IOWebSocketChannel.connect(Uri.parse('ws://$ip:$port/ws'));
       final notes = await _noteRepo.getAllNotes(userId);
+      
       channel.sink.add(jsonEncode({'type': 'sync', 'notes': _notesToJson(notes)}));
+      
       channel.stream.listen((res) async {
+        if (!_isRunning) {
+          channel.sink.close();
+          return;
+        }
+        
         final data = jsonDecode(res);
         if (data['type'] == 'sync') {
           await _mergeNotes(data['notes'], userId);
           _onSync?.call();
         }
         await channel.sink.close();
+      }, onError: (_) {
+        channel.sink.close();
+      }, onDone: () {
+        channel.sink.close();
       });
     } catch (_) {}
   }
   
   Future<void> _handleData(dynamic data, int userId, IOWebSocketChannel channel) async {
+    if (!_isRunning) return;
     try {
       final json = jsonDecode(data);
       if (json['type'] == 'sync') {
@@ -123,10 +164,13 @@ class SyncService {
   }
   
   Future<void> _mergeNotes(List<dynamic> notesData, int userId) async {
+    final linkRepo = LinkRepository(); // создаем инстанс
+final allNotesAfterMerge = await _noteRepo.getAllNotes(userId);
     final local = await _noteRepo.getAllNotes(userId);
     final map = {for (var n in local) n.id: n};
     for (var n in notesData) {
       final note = Note(
+        id: n['id'], 
         userId: userId,
         folderId: n['folder_id'],
         title: n['title'],
@@ -141,6 +185,7 @@ class SyncService {
       } else if (note.updatedAt > existing.updatedAt) {
         await _noteRepo.updateNote(note);
       }
+      await linkRepo.updateLinksForNote(note, allNotesAfterMerge);
     }
   }
   
@@ -157,8 +202,17 @@ class SyncService {
   }
   
   Future<void> _stopServer() async {
-    if (_server != null) await _server!.close(force: true);
-    for (var c in _clients) await c.sink.close();
+    if (_server != null) {
+      try {
+        await _server!.close(force: true);
+      } catch (_) {}
+      _server = null;
+    }
+    for (var c in _clients) {
+      try {
+        await c.sink.close();
+      } catch (_) {}
+    }
     _clients.clear();
   }
   
@@ -167,14 +221,6 @@ class SyncService {
       return await NetworkInfo().getWifiIP();
     } catch (_) {
       return null;
-    }
-  }
-  
-  Future<String> _getDeviceName() async {
-    try {
-      return await NetworkInfo().getWifiName() ?? Platform.operatingSystem;
-    } catch (_) {
-      return Platform.operatingSystem;
     }
   }
   

@@ -279,8 +279,10 @@ class BackupService {
     await Share.shareXFiles([XFile(filePath)], text: 'Резервная копия Synapse');
   }
 
-  Future<String?> pickJsonFile() async {
-    final result = await FilePicker.platform.pickFiles(
+Future<String?> pickJsonFile() async {
+    // Вызываем статический метод напрямую у FilePicker без всяких .platform
+    final result = await FilePicker.pickFiles(
+      type: FileType.custom,
       allowedExtensions: ['json'],
       dialogTitle: 'Выберите файл резервной копии',
     );
@@ -291,7 +293,8 @@ class BackupService {
   }
 
   Future<String?> pickMarkdownFolder() async {
-    final result = await FilePicker.platform.getDirectoryPath(
+    // Вызываем getDirectoryPath напрямую у класса FilePicker
+    final result = await FilePicker.getDirectoryPath(
       dialogTitle: 'Выберите папку с Markdown файлами',
     );
     return result;
