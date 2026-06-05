@@ -15,35 +15,45 @@ class LinkRepository {
 
   // Обновить связи для заметки
   Future<void> updateLinksForNote(Note note, List<Note> allNotes) async {
-    final db = await _dbHelper.database;
+  final db = await _dbHelper.database;
+  
+  // 1. Чистим старые связи для этой заметки, чтобы не дублировать
+  await db.delete(
+    'note_links',
+    where: 'source_note_id = ?',
+    whereArgs: [note.id],
+  );
+  
+  // 2. Вытаскиваем все [[ссылки]] из текста
+  final linkTitles = parseLinksFromContent(note.content ?? '');
+  final now = DateTime.now().millisecondsSinceEpoch;
+  
+  for (var title in linkTitles) {
+    // Чистим пробелы по краям ссылки
+    final cleanTitle = title.trim().toLowerCase(); 
     
-    // Удаляем старые связи
-    await db.delete(
-      'note_links',
-      where: 'source_note_id = ?',
-      whereArgs: [note.id],
-    );
-    
-    // Парсим новые ссылки
-    final linkTitles = parseLinksFromContent(note.content ?? '');
-    final now = DateTime.now().millisecondsSinceEpoch;
-    
-    for (var title in linkTitles) {
-      // Ищем заметку по названию
-      final targetNote = allNotes.firstWhere(
-        (n) => n.title == title,
-        orElse: () => Note(userId: 0, title: '', createdAt: 0, updatedAt: 0),
-      );
-      
-      if (targetNote.id != null) {
-        await db.insert('note_links', {
-          'source_note_id': note.id,
-          'target_note_id': targetNote.id,
-          'created_at': now,
-        });
+    // Ищем заметку-цель, приводя всё к нижнему регистру для надежности
+    Note? targetNote;
+    for (var n in allNotes) {
+      if (n.title.trim().toLowerCase() == cleanTitle) {
+        targetNote = n;
+        break;
       }
     }
+    
+    // 3. Если нашли совпадение, пишем в базу связь
+    if (targetNote != null && targetNote.id != null) {
+      await db.insert('note_links', {
+        'source_note_id': note.id,
+        'target_note_id': targetNote.id,
+        'created_at': now,
+      });
+      print('СВЯЗЬ УСПЕШНО СОЗДАНА: ${note.title} -> ${targetNote.title}');
+    } else {
+      print('Не удалось найти заметку с названием: "$title" для связи');
+    }
   }
+}
 
   // Получить все связи для заметки
   Future<List<LinkModel>> getLinksForNote(int noteId) async {

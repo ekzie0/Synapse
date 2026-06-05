@@ -8,7 +8,9 @@ import 'package:web_socket_channel/io.dart';
 import 'package:network_info_plus/network_info_plus.dart';
 import 'package:nsd/nsd.dart'; 
 import 'package:synapse/database/models/note_model.dart';
+import 'package:synapse/database/models/folder_model.dart'; // Импортируем модель папки
 import 'package:synapse/database/repositories/note_repository.dart';
+import 'package:synapse/database/repositories/folder_repository.dart'; // Импортируем репозиторий папок
 
 class SyncService {
   static const int _port = 8080;
@@ -23,6 +25,7 @@ class SyncService {
   bool _isRunning = false;
   
   final NoteRepository _noteRepo = NoteRepository();
+  final FolderRepository _folderRepo = FolderRepository(); // Добавили репозиторий папок
   
   Future<void> startAutoSync(int userId) async {
     if (_isRunning) return;
@@ -34,12 +37,10 @@ class SyncService {
   
   Future<void> stopAutoSync() async {
     if (!_isRunning) return;
-    _isRunning = false; // Мгновенно ставим флаг в false
+    _isRunning = false; 
     
-    // Безопасно останавливаем mDNS поиск и регистрацию
     try {
       if (_discovery != null) {
-        // Правильный вызов остановки discovery в библиотеке nsd
         await stopDiscovery(_discovery!);
         _discovery = null;
       }
@@ -49,7 +50,6 @@ class SyncService {
 
     try {
       if (_registration != null) {
-        // Правильный вызов отмены регистрации в библиотеке nsd
         await unregister(_registration!);
         _registration = null;
       }
@@ -71,7 +71,7 @@ class SyncService {
     try {
       _server = await HttpServer.bind(InternetAddress(ip), _port, shared: true);
       _server!.listen((HttpRequest request) async {
-        if (!_isRunning) return; // Если сервис остановлен, игнорируем запросы
+        if (!_isRunning) return; 
         
         if (request.uri.path == '/ws' && WebSocketTransformer.isUpgradeRequest(request)) {
           final WebSocket webSocket = await WebSocketTransformer.upgrade(request);
@@ -101,7 +101,7 @@ class SyncService {
 
       _discovery = await startDiscovery(_serviceType);
       _discovery!.addListener(() {
-        if (!_isRunning) return; // Важно: если мы выключили сервис, выходим!
+        if (!_isRunning) return; 
 
         for (var service in _discovery!.services) {
           final ip = service.addresses?.isNotEmpty == true ? service.addresses!.first.address : null;
@@ -126,9 +126,17 @@ class SyncService {
     
     try {
       final channel = IOWebSocketChannel.connect(Uri.parse('ws://$ip:$port/ws'));
-      final notes = await _noteRepo.getAllNotes(userId);
       
-      channel.sink.add(jsonEncode({'type': 'sync', 'notes': _notesToJson(notes)}));
+      // Вытягиваем из базы данных и заметки, и папки
+      final notes = await _noteRepo.getAllNotes(userId);
+      final folders = await _folderRepo.getRootFolders(userId); 
+      
+      // Отправляем полный пакет данных на другое устройство
+      channel.sink.add(jsonEncode({
+        'type': 'sync', 
+        'notes': _notesToJson(notes),
+        'folders': _foldersToJson(folders)
+      }));
       
       channel.stream.listen((res) async {
         if (!_isRunning) {
@@ -138,6 +146,10 @@ class SyncService {
         
         final data = jsonDecode(res);
         if (data['type'] == 'sync') {
+          // КРИТИЧЕСКИ ВАЖНО: Сначала создаем папки, только потом вливаем заметки
+          if (data['folders'] != null) {
+            await _mergeFolders(data['folders'], userId);
+          }
           await _mergeNotes(data['notes'], userId);
           _onSync?.call();
         }
@@ -155,19 +167,60 @@ class SyncService {
     try {
       final json = jsonDecode(data);
       if (json['type'] == 'sync') {
+        // Принимаем данные на стороне сервера (сначала папки, потом заметки)
+        if (json['folders'] != null) {
+          await _mergeFolders(json['folders'], userId);
+        }
         await _mergeNotes(json['notes'], userId);
+        
+        // Формируем ответный пакет со своими локальными данными
         final myNotes = await _noteRepo.getAllNotes(userId);
-        channel.sink.add(jsonEncode({'type': 'sync', 'notes': _notesToJson(myNotes)}));
+        final myFolders = await _folderRepo.getRootFolders(userId);
+        
+        channel.sink.add(jsonEncode({
+          'type': 'sync', 
+          'notes': _notesToJson(myNotes),
+          'folders': _foldersToJson(myFolders)
+        }));
         _onSync?.call();
       }
     } catch (_) {}
   }
   
+  // 🔥 НОВЫЙ МЕТОД: Слияние папок в локальной SQLite базе данных
+  Future<void> _mergeFolders(List<dynamic> foldersData, int userId) async {
+    final localFolders = await _folderRepo.getRootFolders(userId);
+    final map = {for (var f in localFolders) f.id: f};
+
+    for (var f in foldersData) {
+      final folder = Folder(
+        id: f['id'],
+        userId: userId,
+        parentId: f['parent_id'],
+        name: f['name'],
+        createdAt: f['created_at'],
+        updatedAt: f['updated_at'],
+      );
+
+      final existing = map[folder.id];
+      if (existing == null) {
+        await _folderRepo.createFolder(folder);
+      } else if (folder.updatedAt > existing.updatedAt) {
+        // Если на другом устройстве папка новее — обновляем её локально
+        try {
+          await _folderRepo.updateFolder(folder);
+        } catch (_) {
+          // На случай, если метод updateFolder не объявлен или работает иначе
+        }
+      }
+    }
+  }
+  
   Future<void> _mergeNotes(List<dynamic> notesData, int userId) async {
-    final linkRepo = LinkRepository(); // создаем инстанс
-final allNotesAfterMerge = await _noteRepo.getAllNotes(userId);
     final local = await _noteRepo.getAllNotes(userId);
     final map = {for (var n in local) n.id: n};
+    final LinkRepository _linkRepo = LinkRepository();
+    
     for (var n in notesData) {
       final note = Note(
         id: n['id'], 
@@ -179,13 +232,33 @@ final allNotesAfterMerge = await _noteRepo.getAllNotes(userId);
         createdAt: n['created_at'],
         updatedAt: n['updated_at'],
       );
+      
       final existing = map[note.id];
       if (existing == null) {
         await _noteRepo.createNote(note);
       } else if (note.updatedAt > existing.updatedAt) {
         await _noteRepo.updateNote(note);
       }
-      await linkRepo.updateLinksForNote(note, allNotesAfterMerge);
+    }
+
+    await Future.delayed(const Duration(milliseconds: 300));
+
+    final allNotesAfterMerge = await _noteRepo.getAllNotes(userId);
+
+    for (var n in notesData) {
+      final localNote = allNotesAfterMerge.firstWhere(
+        (element) => element.id == n['id'] || element.title.trim().toLowerCase() == n['title'].toString().trim().toLowerCase(),
+        orElse: () => Note(userId: userId, title: '', createdAt: 0, updatedAt: 0),
+      );
+
+      if (localNote.id != null) {
+        try {
+          await _linkRepo.updateLinksForNote(localNote, allNotesAfterMerge);
+          print('[Sync] Успешно обновлены связи для заметки: "${localNote.title}"');
+        } catch (e) {
+          print('[Sync Error] Не удалось обновить связи для заметки ${localNote.id}: $e');
+        }
+      }
     }
   }
   
@@ -198,6 +271,17 @@ final allNotesAfterMerge = await _noteRepo.getAllNotes(userId);
       'folder_id': n.folderId,
       'created_at': n.createdAt,
       'updated_at': n.updatedAt,
+    }).toList();
+  }
+
+  // 🔥 НОВЫЙ МЕТОД: Сериализация папок в JSON формат
+  List<Map<String, dynamic>> _foldersToJson(List<Folder> folders) {
+    return folders.map((f) => {
+      'id': f.id,
+      'parent_id': f.parentId,
+      'name': f.name,
+      'created_at': f.createdAt,
+      'updated_at': f.updatedAt,
     }).toList();
   }
   

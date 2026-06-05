@@ -109,7 +109,7 @@ class FolderProvider extends ChangeNotifier {
     return false;
   }
 
-  Future<bool> createNote(String title, int userId, {int? folderId}) async {
+ Future<bool> createNote(String title, int userId, {int? folderId}) async {
     final now = DateTime.now().millisecondsSinceEpoch;
     final note = Note(
       userId: userId,
@@ -123,9 +123,12 @@ class FolderProvider extends ChangeNotifier {
     final id = await _noteRepo.createNote(note);
     if (id > 0) {
       final createdNote = note.copyWith(id: id);
-      _allNotes.add(createdNote);
+      
+      //заставляем провайдер полностью обновить структуру папок в памяти ПК
+      await loadAllData(userId); 
+      
       await _linkRepo.updateLinksForNote(createdNote, _allNotes);
-      notifyListeners();
+      notifyListeners(); 
       return true;
     }
     return false;
