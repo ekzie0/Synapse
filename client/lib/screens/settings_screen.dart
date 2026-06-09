@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'package:crypto/crypto.dart';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -41,7 +43,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final TextEditingController _oldPasswordController = TextEditingController();
   final TextEditingController _newPasswordController = TextEditingController();
   final TextEditingController _confirmPasswordController = TextEditingController();
-
+String _hashPassword(String password) {
+    if (password.isEmpty) return '';
+    final bytes = utf8.encode(password);
+    final digest = sha256.convert(bytes);
+    return digest.toString();
+  }
   @override
   void dispose() {
     _usernameController.dispose();
@@ -131,10 +138,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
       return;
     }
     
-    final updatedUser = authProvider.currentUser!.copyWith(username: newUsername);
+    final currentUser = authProvider.currentUser!;
+    final updatedUser = currentUser.copyWith(username: newUsername);
     await _userRepo.updateUser(updatedUser);
+    
+    // Передаем сохраненный в модели хэшированный пароль для автоматического перевхода
     await authProvider.logout();
-    await authProvider.login(newUsername, authProvider.currentUser!.password);
+    await authProvider.login(newUsername, currentUser.password); 
+    
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Имя пользователя обновлено')),
@@ -155,10 +166,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
       return;
     }
     
-    final updatedUser = authProvider.currentUser!.copyWith(email: newEmail);
+    final currentUser = authProvider.currentUser!;
+    final updatedUser = currentUser.copyWith(email: newEmail);
     await _userRepo.updateUser(updatedUser);
+    
     await authProvider.logout();
-    await authProvider.login(authProvider.currentUser!.username, authProvider.currentUser!.password);
+    // При перевходе используем имя и хэшированный пароль, который уже лежал в модели
+    await authProvider.login(currentUser.username, currentUser.password);
+    
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Email обновлен')),
@@ -171,7 +186,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final newPassword = _newPasswordController.text;
     final confirmPassword = _confirmPasswordController.text;
     
-    if (oldPassword != authProvider.currentUser!.password) {
+    // Хэшируем введенный старый пароль перед сравнением с базой
+    if (_hashPassword(oldPassword) != authProvider.currentUser!.password) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Неверный старый пароль'), backgroundColor: Colors.red),
       );
@@ -192,10 +208,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
       return;
     }
     
-    final updatedUser = authProvider.currentUser!.copyWith(password: newPassword);
+    // Генерируем хэш нового пароля для записи в базу данных
+    final hashedNewPassword = _hashPassword(newPassword);
+    final updatedUser = authProvider.currentUser!.copyWith(password: hashedNewPassword);
+    
     await _userRepo.updateUser(updatedUser);
     await authProvider.logout();
-    await authProvider.login(authProvider.currentUser!.username, newPassword);
+    
+    // Перезаходим в сессию приложения, используя новый хэш
+    await authProvider.login(authProvider.currentUser!.username, hashedNewPassword);
+    
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Пароль изменен')),
