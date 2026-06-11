@@ -79,15 +79,33 @@ class FolderProvider extends ChangeNotifier {
     return await _folderRepo.getSubfolders(userId, folderId);
   }
 
-  Future<void> openFolder(Folder folder, int userId) async {
+Future<void> openFolder(Folder folder, int userId) async {
     _currentFolder = folder;
+    // Загружаем подпапки для открываемой папки
     _currentSubfolders = await _folderRepo.getSubfolders(userId, folder.id!);
     notifyListeners();
   }
 
-  void goBack() {
-    _currentFolder = null;
-    _currentSubfolders = [];
+  Future<void> goBack(int userId) async {
+    // Если мы и так в корне — ничего не делаем
+    if (_currentFolder == null) return;
+
+    // Если у текущей папки нет parentId — значит её родитель это КОРЕНЬ
+    if (_currentFolder!.parentId == null) {
+      _currentFolder = null;
+      _currentSubfolders = [];
+    } else {
+      // Иначе ищем родительскую папку в базе данных
+      final parentFolder = await _folderRepo.getFolderById(_currentFolder!.parentId!);
+      if (parentFolder != null) {
+        _currentFolder = parentFolder;
+        _currentSubfolders = await _folderRepo.getSubfolders(userId, parentFolder.id!);
+      } else {
+        // На всякий случай fallback в корень
+        _currentFolder = null;
+        _currentSubfolders = [];
+      }
+    }
     notifyListeners();
   }
 
@@ -134,14 +152,21 @@ class FolderProvider extends ChangeNotifier {
     return false;
   }
 
-  Future<bool> updateNote(Note note) async {
-    final result = await _noteRepo.updateNote(note);
+Future<bool> updateNote(Note note) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    // Создаем копию заметки со свежим временем для UI
+    final updatedNoteWithTime = note.copyWith(updatedAt: now);
+
+    final result = await _noteRepo.updateNote(updatedNoteWithTime);
     if (result > 0) {
-      await _linkRepo.updateLinksForNote(note, _allNotes);
+      await _linkRepo.updateLinksForNote(updatedNoteWithTime, _allNotes);
       final index = _allNotes.indexWhere((n) => n.id == note.id);
       if (index != -1) {
-        _allNotes[index] = note;
+        _allNotes[index] = updatedNoteWithTime;
       }
+      
+      _allNotes.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+      
       notifyListeners();
       return true;
     }

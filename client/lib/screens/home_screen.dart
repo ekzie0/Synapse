@@ -39,14 +39,24 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   List<Note> _getRecentNotes(FolderProvider provider) {
-    final allNotes = [...provider.rootNotes, ...provider.currentNotes];
+    final allNotes = provider.allNotes;
     // Убираем дубликаты по id
+    if (allNotes.isEmpty) return [];
+
+    // Убираем дубликаты по id на всякий случай
     final uniqueNotes = <int, Note>{};
     for (var note in allNotes) {
-      uniqueNotes[note.id!] = note;
+      if (note.id != null) {
+        uniqueNotes[note.id!] = note;
+      }
     }
+    
     final notes = uniqueNotes.values.toList();
+    
+    // Сортируем: сверху самые свежие по дате изменения
     notes.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    
+    // Забираем первые 5 штук для отображения в "Недавних"
     return notes.take(5).toList();
   }
 

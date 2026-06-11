@@ -136,12 +136,19 @@ class NoteRepository {
     final db = await _dbHelper.database;
     
     final now = DateTime.now().millisecondsSinceEpoch;
-    final updatedNote = note.copyWith(updatedAt: now);
     
+    // 1. Берем стандартную мапу из модели
+    final Map<String, dynamic> noteMap = Map.from(note.toMap());
+
+    noteMap['updated_at'] = now;
+    if (noteMap.containsKey('updatedAt')) {
+      noteMap.remove('updatedAt'); // Чистим дубликат, если он есть
+    }
+
     final result = await db.update(
       'notes',
-      updatedNote.toMap(),
-      where: 'id = ? AND user_id = ?',
+      noteMap,
+      where: 'id = ? AND user_id = ?', // Здесь у тебя user_id, значит и в мапе нужен updated_at
       whereArgs: [note.id, note.userId],
     );
     

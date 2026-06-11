@@ -3,6 +3,8 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
+import 'dart:convert'; // 🔥 Добавлено для кодирования строк
+import 'package:crypto/crypto.dart'; // 🔥 Добавлено для SHA-256
 
 class DatabaseHelper {
   static final DatabaseHelper _instance = DatabaseHelper._internal();
@@ -22,6 +24,13 @@ class DatabaseHelper {
     if (_database != null) return _database!;
     _database = await _initDatabase();
     return _database!;
+  }
+
+  // 🔥 Приватный метод для хэширования пароля тестового пользователя
+  String _hashPassword(String password) {
+    final bytes = utf8.encode(password);
+    final digest = sha256.convert(bytes);
+    return digest.toString();
   }
 
   Future<Database> _initDatabase() async {
@@ -133,12 +142,14 @@ class DatabaseHelper {
       )
     ''');
     
-    // Создаем тестового пользователя
+    // 🔥 Создаем тестового пользователя с ХЭШИРОВАННЫМ паролем
     final now = DateTime.now().millisecondsSinceEpoch;
+    final hashedDemoPassword = _hashPassword('demo123'); // Результат: 5994471abb...
+
     await db.insert('users', {
       'username': 'demo',
       'email': 'demo@example.com',
-      'password': 'demo123',
+      'password': hashedDemoPassword, // Записываем хэш
       'avatar_color': '#8B7EF6',
       'avatar_path': null,
       'created_at': now,
@@ -157,7 +168,7 @@ class DatabaseHelper {
       'updated_at': now,
     });
     
-    print('✅ База данных создана, тестовый пользователь добавлен');
+    print('✅ База данных создана, тестовый пользователь demo успешно захеширован!');
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {

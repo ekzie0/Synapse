@@ -8,13 +8,15 @@ import 'package:web_socket_channel/io.dart';
 import 'package:network_info_plus/network_info_plus.dart';
 import 'package:nsd/nsd.dart'; 
 import 'package:synapse/database/models/note_model.dart';
-import 'package:synapse/database/models/folder_model.dart'; // Импортируем модель папки
+import 'package:synapse/database/models/folder_model.dart';
 import 'package:synapse/database/repositories/note_repository.dart';
-import 'package:synapse/database/repositories/folder_repository.dart'; // Импортируем репозиторий папок
+import 'package:synapse/database/repositories/folder_repository.dart';
+import 'dart:developer' as developer; // Твой импорт логов уже на месте!
 
 class SyncService {
   static const int _port = 8080;
   static const String _serviceType = '_synapse._tcp'; 
+  static const String _logName = 'WIFI_SYNC'; // Тэг для фильтрации в консоли
   
   HttpServer? _server;
   Registration? _registration; 
@@ -25,12 +27,13 @@ class SyncService {
   bool _isRunning = false;
   
   final NoteRepository _noteRepo = NoteRepository();
-  final FolderRepository _folderRepo = FolderRepository(); // Добавили репозиторий папок
+  final FolderRepository _folderRepo = FolderRepository(); 
   
   Future<void> startAutoSync(int userId) async {
     if (_isRunning) return;
     _isRunning = true;
     
+    developer.log('Запуск службы автосинхронизации для пользователя ID: $userId...', name: _logName);
     await _startServer(userId);
     await _startMdns(userId);
   }
@@ -39,37 +42,45 @@ class SyncService {
     if (!_isRunning) return;
     _isRunning = false; 
     
+    developer.log('Остановка службы автосинхронизации...', name: _logName);
+    
     try {
       if (_discovery != null) {
         await stopDiscovery(_discovery!);
         _discovery = null;
+        developer.log('mDNS Discovery успешно остановлен.', name: _logName);
       }
     } catch (e) {
-      print('Ошибка остановки discovery: $e');
+      developer.log('Ошибка остановки discovery', name: _logName, error: e);
     }
 
     try {
       if (_registration != null) {
         await unregister(_registration!);
         _registration = null;
+        developer.log('Регистрация mDNS сервиса отменена.', name: _logName);
       }
     } catch (e) {
-      print('Ошибка отмены регистрации mDNS: $e');
+      developer.log('Ошибка отмены регистрации mDNS', name: _logName, error: e);
     }
     
     _syncedDevices.clear();
     await _stopServer();
+    developer.log('Служба автосинхронизации полностью остановлена.', name: _logName);
   }
   
   Future<void> _startServer(int userId) async {
     final ip = await _getLocalIp();
     if (ip == null) {
+      developer.log('Не удалось получить локальный IP. Wi-Fi выключен?', name: _logName, level: 900);
       _isRunning = false;
       return;
     }
     
     try {
       _server = await HttpServer.bind(InternetAddress(ip), _port, shared: true);
+      developer.log('WebSocket сервер успешно поднят на ws://$ip:$_port/ws', name: _logName);
+      
       _server!.listen((HttpRequest request) async {
         if (!_isRunning) return; 
         
@@ -77,28 +88,37 @@ class SyncService {
           final WebSocket webSocket = await WebSocketTransformer.upgrade(request);
           final channel = IOWebSocketChannel(webSocket);
           _clients.add(channel);
+          
+          developer.log('Новое входящее подключение клиента. Всего клиентов: ${_clients.length}', name: _logName);
+          
           channel.stream.listen((data) {
             if (_isRunning) _handleData(data, userId, channel);
           }, onDone: () {
             _clients.remove(channel);
-          }, onError: (_) {
+            developer.log('Клиент закрыл соединение. Осталось клиентов: ${_clients.length}', name: _logName);
+          }, onError: (e) {
             _clients.remove(channel);
+            developer.log('Ошибка на стриме клиента', name: _logName, error: e);
           });
         }
-      }, onError: (e) => print('Ошибка сервера: $e'));
-    } catch (_) {
+      }, onError: (e) => developer.log('Ошибка HttpServer', name: _logName, error: e));
+    } catch (e) {
+      developer.log('Не удалось запустить HttpServer на порту $_port', name: _logName, error: e);
       _isRunning = false;
     }
   }
   
   Future<void> _startMdns(int userId) async {
     try {
+      developer.log('Регистрация mDNS сервиса "$_serviceType"...', name: _logName);
       _registration = await register(const Service(
         name: 'Synapse-Device',
         type: _serviceType,
         port: _port,
       ));
+      developer.log('Устройство опубликовано в локальной сети через mDNS.', name: _logName);
 
+      developer.log('Запуск mDNS Discovery поиска других устройств...', name: _logName);
       _discovery = await startDiscovery(_serviceType);
       _discovery!.addListener(() {
         if (!_isRunning) return; 
@@ -110,13 +130,15 @@ class SyncService {
           if (ip != null && port != null) {
             final id = '$ip:$port';
             if (!_syncedDevices.contains(id)) {
+              developer.log('Обнаружено новое устройство Synapse в сети: $id. Начинаем синхронизацию...', name: _logName);
               _syncedDevices.add(id);
               _connectAndSync(ip, port, userId);
             }
           }
         }
       });
-    } catch (_) {
+    } catch (e) {
+      developer.log('Ошибка инициализации mDNS', name: _logName, error: e);
       _isRunning = false;
     }
   }
@@ -124,14 +146,16 @@ class SyncService {
   Future<void> _connectAndSync(String ip, int port, int userId) async {
     if (!_isRunning) return;
     
+    final targetUrl = 'ws://$ip:$port/ws';
     try {
-      final channel = IOWebSocketChannel.connect(Uri.parse('ws://$ip:$port/ws'));
+      developer.log('Подключаемся к удаленному серверу: $targetUrl', name: _logName);
+      final channel = IOWebSocketChannel.connect(Uri.parse(targetUrl));
       
-      // Вытягиваем из базы данных и заметки, и папки
       final notes = await _noteRepo.getAllNotes(userId);
       final folders = await _folderRepo.getRootFolders(userId); 
       
-      // Отправляем полный пакет данных на другое устройство
+      developer.log('Отправляем свои данные на $ip (Папок: ${folders.length}, Заметок: ${notes.length})', name: _logName);
+      
       channel.sink.add(jsonEncode({
         'type': 'sync', 
         'notes': _notesToJson(notes),
@@ -146,20 +170,27 @@ class SyncService {
         
         final data = jsonDecode(res);
         if (data['type'] == 'sync') {
-          // КРИТИЧЕСКИ ВАЖНО: Сначала создаем папки, только потом вливаем заметки
+          developer.log('Получен ответный пакет данных от $ip. Начинаем слияние...', name: _logName);
+          
           if (data['folders'] != null) {
             await _mergeFolders(data['folders'], userId);
           }
           await _mergeNotes(data['notes'], userId);
+          
+          developer.log('Синхронизация с $ip успешно завершена!', name: _logName);
           _onSync?.call();
         }
         await channel.sink.close();
-      }, onError: (_) {
+      }, onError: (e) {
+        developer.log('Ошибка при обмене данными с $ip', name: _logName, error: e);
         channel.sink.close();
       }, onDone: () {
+        developer.log('Соединение с $ip закрыто.', name: _logName);
         channel.sink.close();
       });
-    } catch (_) {}
+    } catch (e) {
+      developer.log('Не удалось подключиться или синхронизироваться с $targetUrl', name: _logName, error: e);
+    }
   }
   
   Future<void> _handleData(dynamic data, int userId, IOWebSocketChannel channel) async {
@@ -167,30 +198,39 @@ class SyncService {
     try {
       final json = jsonDecode(data);
       if (json['type'] == 'sync') {
-        // Принимаем данные на стороне сервера (сначала папки, потом заметки)
+        developer.log('Сервер принял пакет синхронизации от подключенного клиента.', name: _logName);
+        
         if (json['folders'] != null) {
           await _mergeFolders(json['folders'], userId);
         }
         await _mergeNotes(json['notes'], userId);
         
-        // Формируем ответный пакет со своими локальными данными
         final myNotes = await _noteRepo.getAllNotes(userId);
         final myFolders = await _folderRepo.getRootFolders(userId);
+        
+        developer.log('Сервер отправляет клиенту ответные локальные данные (Папок: ${myFolders.length}, Заметок: ${myNotes.length})', name: _logName);
         
         channel.sink.add(jsonEncode({
           'type': 'sync', 
           'notes': _notesToJson(myNotes),
           'folders': _foldersToJson(myFolders)
         }));
+        
+        developer.log('Серверная часть обработки синхронизации завершена.', name: _logName);
         _onSync?.call();
       }
-    } catch (_) {}
+    } catch (e) {
+      developer.log('Ошибка сервера при парсинге входящего JSON пакета', name: _logName, error: e);
+    }
   }
   
-  // 🔥 НОВЫЙ МЕТОД: Слияние папок в локальной SQLite базе данных
   Future<void> _mergeFolders(List<dynamic> foldersData, int userId) async {
+    developer.log('Слияние папок: обрабатывается ${foldersData.length} папок из сети...', name: _logName);
     final localFolders = await _folderRepo.getRootFolders(userId);
     final map = {for (var f in localFolders) f.id: f};
+
+    int createdCount = 0;
+    int updatedCount = 0;
 
     for (var f in foldersData) {
       final folder = Folder(
@@ -205,22 +245,29 @@ class SyncService {
       final existing = map[folder.id];
       if (existing == null) {
         await _folderRepo.createFolder(folder);
+        createdCount++;
       } else if (folder.updatedAt > existing.updatedAt) {
-        // Если на другом устройстве папка новее — обновляем её локально
         try {
           await _folderRepo.updateFolder(folder);
-        } catch (_) {
-          // На случай, если метод updateFolder не объявлен или работает иначе
+          updatedCount++;
+        } catch (e) {
+          developer.log('Ошибка вызова updateFolder для папки "${folder.name}"', name: _logName, error: e);
         }
       }
     }
+    developer.log('Итог слияния папок: Создано: $createdCount, Обновлено: $updatedCount', name: _logName);
   }
   
   Future<void> _mergeNotes(List<dynamic> notesData, int userId) async {
+    developer.log('Слияние заметок: обрабатывается ${notesData.length} заметок из сети...', name: _logName);
     final local = await _noteRepo.getAllNotes(userId);
     final map = {for (var n in local) n.id: n};
     final LinkRepository _linkRepo = LinkRepository();
     
+    int createdCount = 0;
+    int updatedCount = 0;
+    int skippedCount = 0;
+
     for (var n in notesData) {
       final note = Note(
         id: n['id'], 
@@ -236,12 +283,18 @@ class SyncService {
       final existing = map[note.id];
       if (existing == null) {
         await _noteRepo.createNote(note);
+        createdCount++;
       } else if (note.updatedAt > existing.updatedAt) {
         await _noteRepo.updateNote(note);
+        updatedCount++;
+      } else {
+        skippedCount++;
       }
     }
+    developer.log('Итог слияния заметок: Создано: $createdCount, Обновлено: $updatedCount, Пропущено: $skippedCount', name: _logName);
 
     await Future.delayed(const Duration(milliseconds: 300));
+    developer.log('Пересчет Wiki-ссылок и графа связей для обновленных заметок...', name: _logName);
 
     final allNotesAfterMerge = await _noteRepo.getAllNotes(userId);
 
@@ -254,12 +307,12 @@ class SyncService {
       if (localNote.id != null) {
         try {
           await _linkRepo.updateLinksForNote(localNote, allNotesAfterMerge);
-          print('[Sync] Успешно обновлены связи для заметки: "${localNote.title}"');
         } catch (e) {
-          print('[Sync Error] Не удалось обновить связи для заметки ${localNote.id}: $e');
+          developer.log('Не удалось обновить связи для заметки ID ${localNote.id}', name: _logName, error: e);
         }
       }
     }
+    developer.log('Граф связей успешно обновлен.', name: _logName);
   }
   
   List<Map<String, dynamic>> _notesToJson(List<Note> notes) {
@@ -274,7 +327,6 @@ class SyncService {
     }).toList();
   }
 
-  // 🔥 НОВЫЙ МЕТОД: Сериализация папок в JSON формат
   List<Map<String, dynamic>> _foldersToJson(List<Folder> folders) {
     return folders.map((f) => {
       'id': f.id,
@@ -289,7 +341,10 @@ class SyncService {
     if (_server != null) {
       try {
         await _server!.close(force: true);
-      } catch (_) {}
+        developer.log('HTTP/WebSocket сервер принудительно закрыт.', name: _logName);
+      } catch (e) {
+        developer.log('Ошибка закрытия сервера', name: _logName, error: e);
+      }
       _server = null;
     }
     for (var c in _clients) {
@@ -302,8 +357,11 @@ class SyncService {
   
   Future<String?> _getLocalIp() async {
     try {
-      return await NetworkInfo().getWifiIP();
-    } catch (_) {
+      final ip = await NetworkInfo().getWifiIP();
+      developer.log('Успешно получен локальный Wi-Fi IP: $ip', name: _logName);
+      return ip;
+    } catch (e) {
+      developer.log('Ошибка при получении Wi-Fi IP', name: _logName, error: e);
       return null;
     }
   }

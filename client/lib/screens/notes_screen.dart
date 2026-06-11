@@ -9,6 +9,7 @@ import 'package:synapse/widgets/avatar_popup_menu.dart';
 import 'package:synapse/widgets/image_picker_widget.dart';
 import 'package:synapse/widgets/tag_picker.dart';
 import 'package:synapse/widgets/mobile_note_field.dart';
+import 'package:synapse/widgets/link_note_dialog.dart';
 
 class LinkTextEditingController extends TextEditingController {
   final RegExp _linkRegex = RegExp(r'\[\[(.*?)\]\]');
@@ -96,13 +97,23 @@ class _NotesScreenState extends State<NotesScreen> {
     }
   }
 
-  void _openNote(Note note) {
+void _openNote(Note note) async {
     setState(() {
       _selectedNoteId = note.id;
       _selectedFolder = null;
       _noteTitleController.text = note.title;
       _noteContentController.text = note.content ?? '';
     });
+
+    //Возвращаем заметку в блок "Недавние" при каждом просмотре!
+    final folderProvider = Provider.of<FolderProvider>(context, listen: false);
+    final now = DateTime.now().millisecondsSinceEpoch;
+    
+    // Создаем копию со свежим временем
+    final updatedNote = note.copyWith(updatedAt: now);
+    
+    // Сохраняем в локальную SQLite
+    await folderProvider.updateNote(updatedNote);
   }
 
   void _selectFolder(Folder folder) {
@@ -156,49 +167,24 @@ class _NotesScreenState extends State<NotesScreen> {
     }
   }
 
-  void _showLinkAutocomplete() {
-  final provider = Provider.of<FolderProvider>(context, listen: false);
-  final allNotes = provider.allNotes;  // ← просто берем все заметки из провайдера
-  
-  if (allNotes.isEmpty) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Нет доступных заметок для ссылки')),
+void _showLinkAutocomplete() async {
+    final provider = Provider.of<FolderProvider>(context, listen: false);
+    final String? selectedTitle = await showDialog<String>(
+      context: context,
+      builder: (context) => LinkNoteDialog(allNotes: provider.allNotes),
     );
-    return;
+    if (selectedTitle != null) {
+      final currentText = _noteContentController.text;
+      final cursorPosition = _noteContentController.selection.baseOffset;
+      if (cursorPosition >= 2) {
+        setState(() {
+          _noteContentController.text = currentText.replaceRange(cursorPosition - 2, cursorPosition, '[[$selectedTitle]]');
+          _noteContentController.selection = TextSelection.collapsed(offset: _noteContentController.text.length);
+        });
+        _saveNote();
+      }
+    }
   }
-  
-  showDialog(
-    context: context,
-    builder: (context) => AlertDialog(
-      title: const Text('Связать с заметкой'),
-      content: SizedBox(
-        width: double.maxFinite,
-        height: 250,
-        child: ListView.builder(
-          itemCount: allNotes.length,
-          itemBuilder: (context, i) {
-            final note = allNotes[i];
-            if (note.id == _selectedNoteId) return const SizedBox.shrink();
-            return ListTile(
-              title: Text(note.title),
-              onTap: () {
-                final currentText = _noteContentController.text;
-                final newText = currentText.substring(0, currentText.length - 2) +
-                    '[[${note.title}]]';
-                _noteContentController.text = newText;
-                _noteContentController.selection = TextSelection.collapsed(
-                  offset: newText.length,
-                );
-                Navigator.pop(context);
-                _saveNote();
-              },
-            );
-          },
-        ),
-      ),
-    ),
-  );
-}
 
   String? _getLinkUnderCursor() {
     final text = _noteContentController.text;
@@ -684,17 +670,20 @@ List<String> _getAllTags() {
     );
   }
 
-  List<Widget> _buildFolderTree(List<Folder> folders, FolderProvider provider, int userId, int depth) {
+ List<Widget> _buildFolderTree(List<Folder> folders, FolderProvider provider, int userId, int depth) {
     List<Widget> widgets = [];
     
     for (var folder in folders) {
       final isExpanded = _expandedFolders.contains(folder.id);
       final isSelected = _selectedFolder?.id == folder.id;
+      
+      // Получаем заметки ТОЛЬКО для этой конкретной папки
       final folderNotes = provider.allNotes.where((n) => n.folderId == folder.id).toList();
       
+      // 1. Добавляем саму папку (с уникальным ключом и контекстным меню)
       widgets.add(
-        // 🔥 ОБЕРНУЛИ В GESTUREDETECTOR ДЛЯ ПРАВОГО КЛИКА
         GestureDetector(
+          key: ValueKey('folder_${folder.id}'), // Защита от путаницы вложенных папок
           onSecondaryTapDown: (details) {
             _showFolderContextMenu(context, details.globalPosition, folder, provider, userId);
           },
@@ -713,14 +702,23 @@ List<String> _getAllTags() {
         ),
       );
 
+      // 2. Если папка развернута, углубляемся дальше
       if (isExpanded) {
+        // РЕКУРСИЯ: Рендерим субпапки ТЕКУЩЕЙ папки
         if (folder.subfolders != null && folder.subfolders!.isNotEmpty) {
           widgets.addAll(_buildFolderTree(folder.subfolders!, provider, userId, depth + 1));
         }
         
+        // 3. Добавляем заметки, принадлежащие именно этой папке
         if (folderNotes.isNotEmpty) {
           widgets.addAll(
-            folderNotes.map((note) => _buildNoteTile(context, note, provider, userId, folder))
+            folderNotes.map((note) => _buildNoteTile(
+              context, 
+              note, 
+              provider, 
+              userId, 
+              folder,
+            )).toList()
           );
         }
       }
@@ -865,6 +863,7 @@ List<String> _getAllTags() {
     final isSelected = _selectedNoteId == note.id;
     
     return Draggable<Note>(
+      key: ValueKey('draggable_note_${note.id}'), // Ключ для перетаскивания
       data: note,
       feedback: Material(
         color: Colors.transparent,
@@ -898,6 +897,7 @@ List<String> _getAllTags() {
     Folder? parentFolder,
   ) {
     return GestureDetector(
+      key: ValueKey('note_content_${note.id}'), // ЖЕСТКИЙ КЛЮЧ ДЛЯ СЛУШАТЕЛЯ НАЖАТИЙ
       onTap: () => _openNote(note),
       onSecondaryTapDown: (details) {
         _showNoteContextMenu(details.globalPosition, note, parentFolder);
@@ -1072,132 +1072,131 @@ List<String> _getAllTags() {
 Widget _buildNoteEditor(BuildContext context, FolderProvider provider) {
   final theme = Theme.of(context);
   
-  final allNotes = [...provider.rootNotes, ...provider.currentNotes];
-  
-  Note? selectedNote;
-  selectedNote = allNotes.firstWhere(
+  // Ищем выбранную заметку среди абсолютно ВСЕХ заметок в базе/провайдере
+  Note selectedNote = provider.allNotes.firstWhere(
     (n) => n.id == _selectedNoteId,
     orElse: () => Note(userId: 0, title: '', createdAt: 0, updatedAt: 0),
   );
     
-    if (_selectedNoteId == null || selectedNote.id == null) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.note_outlined,
-              size: 48,
-              color: Colors.grey[600],
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Выберите заметку',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: Colors.grey[500],
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-    
-    final currentNote = selectedNote;
-    
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        TextField(
-          controller: _noteTitleController,
-          style: theme.textTheme.titleLarge?.copyWith(
-            fontSize: 22,
-            fontWeight: FontWeight.w600,
+  // Если заметка не найдена или ID пустой — показываем заглушку «Выберите заметку»
+  if (_selectedNoteId == null || selectedNote.id == null) {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.note_outlined,
+            size: 48,
+            color: Colors.grey[600],
           ),
-          decoration: const InputDecoration(
-            hintText: 'Заголовок',
-            border: InputBorder.none,
-            contentPadding: EdgeInsets.zero,
+          const SizedBox(height: 12),
+          Text(
+            'Выберите заметку',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: Colors.grey[500],
+            ),
           ),
-          onChanged: (_) => _saveNote(),
-        ),
-        
-        const SizedBox(height: 16),
-        
-        TagPicker(
-          selectedTags: currentNote.tags ?? [],
-          onTagsChanged: (tags) {
-            if (currentNote.id != null) {
-              final updatedNote = currentNote.copyWith(tags: tags);
-              provider.updateNote(updatedNote);
-              _refreshData();
-            }
-          },
-          availableTags: _getAllTags(),
-        ),
-        
-        const SizedBox(height: 16),
-        
-        ImagePickerWidget(
-          imagePaths: currentNote.images ?? [],
-          onImagesChanged: (images) {
-            if (currentNote.id != null) {
-              final updatedNote = currentNote.copyWith(images: images);
-              provider.updateNote(updatedNote);
-              _refreshData();
-            }
-          },
-          noteId: currentNote.id!,
-        ),
-        
-        const SizedBox(height: 16),
-        
-        Container(
-          height: 1,
-          color: theme.colorScheme.brightness == Brightness.dark
-              ? Colors.white.withOpacity(0.05)
-              : Colors.black.withOpacity(0.05),
-        ),
-        
-        const SizedBox(height: 16),
-        
-        ValueListenableBuilder(
-          valueListenable: _noteContentController,
-          builder: (context, value, child) {
-            final linkTitle = _getLinkUnderCursor();
-            if (linkTitle == null) return const SizedBox.shrink();
-            
-            return Container(
-              margin: const EdgeInsets.only(bottom: 8),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: ListTile(
-                leading: Icon(Icons.link, color: Theme.of(context).colorScheme.primary),
-                title: Text(
-                  "Перейти к: $linkTitle",
-                  style: TextStyle(color: Theme.of(context).colorScheme.primary),
-                ),
-                trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                onTap: () => _jumpToNote(linkTitle),
-              ),
-            );
-          },
-        ),
-        
-        Expanded(
-  child: MobileNoteField(
-    controller: _noteContentController,
-    currentNoteId: _selectedNoteId,
-    style: theme.textTheme.bodyLarge,
-    onChanged: () {
-      _onTextChanged();
-    },
-  ),
-),
-      ],
+        ],
+      ),
     );
   }
+  
+  final currentNote = selectedNote;
+  
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      TextField(
+        controller: _noteTitleController,
+        style: theme.textTheme.titleLarge?.copyWith(
+          fontSize: 22,
+          fontWeight: FontWeight.w600,
+        ),
+        decoration: const InputDecoration(
+          hintText: 'Заголовок',
+          border: InputBorder.none,
+          contentPadding: EdgeInsets.zero,
+        ),
+        onChanged: (_) => _saveNote(),
+      ),
+      
+      const SizedBox(height: 16),
+      
+      TagPicker(
+        selectedTags: currentNote.tags ?? [],
+        onTagsChanged: (tags) {
+          if (currentNote.id != null) {
+            final updatedNote = currentNote.copyWith(tags: tags);
+            provider.updateNote(updatedNote);
+            _refreshData();
+          }
+        },
+        availableTags: _getAllTags(),
+      ),
+      
+      const SizedBox(height: 16),
+      
+      ImagePickerWidget(
+        imagePaths: currentNote.images ?? [],
+        onImagesChanged: (images) {
+          if (currentNote.id != null) {
+            final updatedNote = currentNote.copyWith(images: images);
+            provider.updateNote(updatedNote);
+            _refreshData();
+          }
+        },
+        noteId: currentNote.id!,
+      ),
+      
+      const SizedBox(height: 16),
+      
+      Container(
+        height: 1,
+        color: theme.colorScheme.brightness == Brightness.dark
+            ? Colors.white.withOpacity(0.05)
+            : Colors.black.withOpacity(0.05),
+      ),
+      
+      const SizedBox(height: 16),
+      
+      ValueListenableBuilder(
+        valueListenable: _noteContentController,
+        builder: (context, value, child) {
+          final linkTitle = _getLinkUnderCursor();
+          if (linkTitle == null) return const SizedBox.shrink();
+          
+          return Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.primary.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: ListTile(
+              leading: Icon(Icons.link, color: Theme.of(context).colorScheme.primary),
+              title: Text(
+                "Перейти к: $linkTitle",
+                style: TextStyle(color: Theme.of(context).colorScheme.primary),
+              ),
+              trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+              onTap: () => _jumpToNote(linkTitle),
+            ),
+          );
+        },
+      ),
+      
+      Expanded(
+        child: MobileNoteField(
+          controller: _noteContentController,
+          currentNoteId: _selectedNoteId,
+          style: theme.textTheme.bodyLarge,
+          onChanged: () {
+            _onTextChanged();
+          },
+        ),
+      ),
+    ],
+  );
+}
 
 Widget _buildMobileView(BuildContext context, FolderProvider provider) {
   final theme = Theme.of(context);
@@ -1224,14 +1223,15 @@ Widget _buildMobileView(BuildContext context, FolderProvider provider) {
               backgroundColor: colorScheme.surface,
               elevation: 0,
               leading: IconButton(
-                onPressed: () {
+                onPressed: () async { // Добавили async
                   if (!showList) {
                     _saveNote();
                     mobileSetState(() {
                       _selectedNoteId = null; 
                     });
                   } else if (!provider.isInRoot) {
-                    provider.goBack();
+                    // ИСПРАВЛЕНО: Передаем userId в обновленный метод goBack
+                    await provider.goBack(userId); 
                     mobileSetState(() {}); 
                   } else {
                     Navigator.pop(context);
@@ -1262,7 +1262,7 @@ Widget _buildMobileView(BuildContext context, FolderProvider provider) {
               ],
             ),
         
-        // 🔥 ВОТ ОНА — УНИВЕРСАЛЬНАЯ КНОПКА СОЗДАНИЯ НА МОБИЛКЕ
+        
         floatingActionButton: showList 
           ? FloatingActionButton(
               backgroundColor: colorScheme.primary,
@@ -1401,9 +1401,10 @@ Widget _buildMobileView(BuildContext context, FolderProvider provider) {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final userId = authProvider.currentUser!.id!;
 
+    // ИСПРАВЛЕНО: Читаем папки из правильного массива в зависимости от того, где мы
     final currentFolders = provider.isInRoot 
         ? provider.rootFolders 
-        : (provider.currentFolder?.subfolders ?? []);
+        : provider.currentSubfolders; // Берем подпапки из провайдера
 
     final currentNotes = provider.allNotes.where((n) {
       if (_isSearching) {
@@ -1423,22 +1424,26 @@ Widget _buildMobileView(BuildContext context, FolderProvider provider) {
       padding: const EdgeInsets.symmetric(horizontal: 8),
       itemCount: totalItems,
       itemBuilder: (context, index) {
+        // Сначала рендерим папки текущего уровня
         if (index < currentFolders.length) {
           final folder = currentFolders[index];
           return ListTile(
+            key: ValueKey('mobile_folder_${folder.id}'),
             leading: Icon(Icons.folder_outlined, color: colorScheme.primary),
             title: Text(folder.name, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
             trailing: const Icon(Icons.keyboard_arrow_right, size: 16),
-           onTap: () async {
-  await provider.openFolder(folder, userId);
-  mobileSetState(() {}); // Перерисовываем экран, показывая подпапки
-},
+            onTap: () async {
+              await provider.openFolder(folder, userId);
+              mobileSetState(() {}); // Перерисовываем мобильный вид с новыми папками
+            },
           );
         }
 
+        // Затем рендерим заметки текущего уровня
         final noteIndex = index - currentFolders.length;
         final note = currentNotes[noteIndex];
         return ListTile(
+          key: ValueKey('mobile_note_${note.id}'),
           leading: const Icon(Icons.description_outlined, size: 18),
           title: Text(note.title, style: const TextStyle(fontSize: 14)),
           onTap: () {
@@ -1452,7 +1457,6 @@ Widget _buildMobileView(BuildContext context, FolderProvider provider) {
       },
     );
   }
-
   Widget _buildMobileEditorContent(BuildContext context, FolderProvider provider, StateSetter mobileSetState) {
     if (_selectedNoteId == null) {
       return const Center(child: Text('Выберите заметку'));
